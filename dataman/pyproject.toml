@@ -23,12 +23,12 @@ classifiers = [
 ]
 
 dependencies = [
-    "ialdev-core",
-    "ialdev-io",
-    "ialdev-img",
-    "ialdev-maths",
+    "ialdev-core>=0.2.2",
+    "ialdev-io>=0.2.0",
+    "ialdev-img>=0.2.0",
+    "ialdev-maths>=0.2.1",
     "pandas>=2.0.0",
-    "numpy>=2.0",
+    "numpy>=1.26.4",
     "pydantic>=2.0",
     "pyyaml>=5.4.0",
     "regex>=2021.0.0",

@@ -16,6 +16,8 @@ Accepted package identifiers:
       ialdev-dataman ialdev-vis
 
 Notes:
+  - Run ./sync_workspace_deps.py (or: pixi run sync-workspace-deps) after bumping
+    sub-package versions and before publishing, so dependents pin the new releases.
   - Publishes to PyPI via `flit publish` from each package folder.
   - Authentication should be configured for flit (token, keyring, or ~/.pypirc).
 EOF

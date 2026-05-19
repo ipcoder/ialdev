@@ -22,9 +22,9 @@ classifiers = [
 ]
 
 dependencies = [
-    "ialdev-core",
-    "ialdev-dataman",
-    "ialdev-vis",
+    "ialdev-core>=0.2.2",
+    "ialdev-dataman>=0.2.2",
+    "ialdev-vis>=0.2.0",
     "numpy>=1.20.0",
     "pandas>=1.3.0",
     "ipywidgets>=7.0.0",

@@ -22,8 +22,8 @@ classifiers = [
 ]
 
 dependencies = [
-    "ialdev-core",
-    "ialdev-dataman",
+    "ialdev-core>=0.2.2",
+    "ialdev-dataman>=0.2.2",
     "click>=8.0",
 ]
 

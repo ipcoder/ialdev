@@ -857,11 +857,11 @@ packages:
 - pypi: ./algutils
   name: ialdev-core
   version: 0.2.2
-  sha256: b0fe0aa589cd42c180d84d3f9b41b46fca8815c361cd58bff565f044e17200ab
+  sha256: 8643bde505afa5062fba9496d8327e9b45a9818b71b1b90d2d9339dde145eadb
   requires_dist:
   - pydantic>=2.0
   - pandas>=2.1.0
-  - numpy>=2.0
+  - numpy>=1.26.0
   - pyyaml>=5.4.0
   - ruamel-yaml>=0.15.0
   - regex>=2021.0.0
@@ -886,14 +886,14 @@ packages:
 - pypi: ./dataman
   name: ialdev-dataman
   version: 0.2.2
-  sha256: a379085ebbbeda042d005192cd158707b0080d5dc4769d0d76d9e11fd8cdef2d
+  sha256: ceac4dd043e7fb2a5326ea2dc8f2e39bc2e9baa3b65146320473e960a2f0f061
   requires_dist:
-  - ialdev-core
-  - ialdev-io
+  - ialdev-core>=0.2.2
+  - ialdev-io>=0.2.0
   - ialdev-img
   - ialdev-maths
   - pandas>=2.0.0
-  - numpy>=2.0
+  - numpy>=1.26.4
   - pydantic>=2.0
   - pyyaml>=5.4.0
   - regex>=2021.0.0
@@ -914,10 +914,10 @@ packages:
 - pypi: ./imgtools
   name: ialdev-img
   version: 0.2.0
-  sha256: f092964634a3929259ac3b4d03f9eebcede5873ce088c2787845464c1f515970
+  sha256: 7615168a7d443b21b2dfbb0e240c5c39b3fdf3195612d25201ef846df233d1e6
   requires_dist:
-  - ialdev-core
-  - ialdev-io
+  - ialdev-core>=0.2.2
+  - ialdev-io>=0.2.0
   - ialdev-maths
   - numpy>=1.20.0
   - xxhash>=3.0.0
@@ -927,10 +927,10 @@ packages:
 - pypi: ./fio
   name: ialdev-io
   version: 0.2.0
-  sha256: d59d47d0d772a3a6cbad06d93aa56b38f87a340762cf9291f0956ace7d394454
+  sha256: 2d6a94cd459740cd4697430e7859b4748a3c141417d92a98d3e67e09e7be1dd9
   requires_dist:
-  - ialdev-core
-  - numpy>=1.20.0
+  - ialdev-core>=0.2.2
+  - numpy>=1.26.4
   - pillow>=8.0.0
   - scikit-image>=0.19.0
   - tifffile

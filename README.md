@@ -57,6 +57,8 @@ imsave("crop.tif", crop)
 
 ## Development and publishing
 
+See **[PUBLISH.md](PUBLISH.md)** for the full release workflow (version bumps, `sync_workspace_deps.py`, tests, and PyPI).
+
 The individual `ialdev-*` packages use [Flit](https://flit.pypa.io/) and define one `[tool.flit.module]` each. The root `ialgdev` meta package uses `setuptools` and contains no `iad.*` modules.
 
 ```bash
