@@ -73,3 +73,5 @@ Thumbs.db
 !.pixi/config.toml
 /algutils/.pixi/
 .remember/*
+/.cursor/
+/.claude/
