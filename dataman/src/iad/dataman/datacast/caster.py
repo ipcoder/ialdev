@@ -32,13 +32,13 @@ class CasterConfig:
     __slots__ = ('name', 'root', 'search', 'labels', 'mappings',
                  'reverse', 'bundle', 'filters', 'sample')
 
-    def __init__(self, *, name: str = None, root: Path | str,
+    def __init__(self, *, name: str = None, root: Path | str | None,
                  search: GuideScan, labels: dict = None,
                  mappings: dict = None, reverse: bool = False,
                  bundle: list | None = None, filters: dict = None,
                  sample: dict = None):
         self.name = name
-        self.root = Path(root) if root else None
+        self.root = root and Path(root)
         self.search = search
         self.labels = labels or {}
         self.mappings = mappings or {}
@@ -116,7 +116,7 @@ class DataCaster:
     CacheMode = CacheMode  # allow PathScheme.CacheMode instead of scheme.CacheMode
 
     def __init__(self, name: str = None, *,
-                 root: Path | str,
+                 root: Path | str | list[str],
                  search: GuideScan,
                  labels: dict = None,
                  mappings: dict = None,
@@ -128,16 +128,24 @@ class DataCaster:
                  temp_cache=False, cache: Optional[CacheMode | bool] = True,
                  progress: dict | bool = None):
         """
-        Create data caster semantic parser for particularly structured files tree.
+        Create a data caster semantic parser for a particularly structured files tree.
         ::
             tree -> [pattern] -> files -> [label] -> [filter] -> labeled
 
         All parameters must be fully resolved (no name-based lookup).
-        For name-based construction (e.g. ``DataCaster('ETH3D')``), use the
-        factory in ``dataman`` (e.g. ``dataman.create_caster``).
+        For name-based construction (e.g. `DataCaster('ETH3D')`), use the
+        factory in `dataman` (e.g. ``dataman.create_caster``).
+
+        **Debug Mode**
+        There is a special "debug" mode, when instead of a root of the tree, a list of paths is provided.
+        That allows evaluating the labeling pipeline on a specific set of files
+        without the need for a full tree structure.
+        (`GuideScan.samples` may be used as such input if the scheme defines them)
+        In this case caching is always disabled.
         """
         self.config = CasterConfig(
-            name=name, root=root, search=search, labels=labels,
+            name=name, root=root if isinstance(root, (Path, str)) else '',
+            search=search, labels=labels,
             mappings=mappings, reverse=reverse, bundle=bundle,
             filters=filters, sample=sample,
         )
@@ -146,6 +154,11 @@ class DataCaster:
                           reverse=self.config.reverse, namespace=self.labeling_namespace)
         self.categories = labeler.categories
         self.bundle = self.config.bundle or []
+
+        if isinstance(root, list):  # debug mode: evaluate labeling on explicit path samples            
+            self.cached_pipe = self._files_list_pipeline(labeler, files=root, cache=False)
+            return
+
         is_win = os.name == 'nt'
         stages = [
             CachedPipe.Source(self.config.search.scanner(self.root, is_win), 'wlk',
@@ -161,6 +174,25 @@ class DataCaster:
             stages=stages, folder=Path(self.root) / '.cache', mode=CacheMode(cache), temp=temp_cache,
             serial=PickleRelativePath(self.root, safe=False), progress=progress
         )
+
+    def _files_list_pipeline(self, labeler: Labeler, files: list[str], cache: bool=False):
+        """Create a pipeline for labeling a list of files"""
+        search = self.config.search
+        method = 'search' if search.method == 'end' else 'fullmatch'
+
+        def path_labels():
+            for p in files:
+                if (m := search.parse(p, method=method)) is not None:
+                    yield m | {'path': p}
+
+        stages = [
+            CachedPipe.Source(path_labels(), 'files'),
+            CachedPipe.Map(labeler.processor, 'lbl', cfg=labeler.to_yaml()),
+        ]
+        if self.config.filters:
+            stages.append(CachedPipe.Filter(Filter(self.config.filters), 'flt',
+                                            cfg=yaml.dump(self.config.filters)))
+        return CachedPipe(stages=stages, folder=Path('.'), mode=CacheMode(cache))
 
     @property
     def labeling_namespace(self):
@@ -181,6 +213,8 @@ class DataCaster:
 
     @property
     def root(self):
+        if not self.config.root:
+            raise RuntimeError(f"Root path is not set for caster '{self.config.name}'")
         return self.config.root
 
     def __repr__(self):

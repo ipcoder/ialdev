@@ -58,11 +58,27 @@ cd algutils && pixi run flit build --no-use-vcs
 
 ### 3. Bump versions
 
-In every **changed** package, increment `version` in that folder’s `pyproject.toml` (and `__version__` in `__init__.py` if the package defines one, e.g. `dataman`).
+Detect git changes per package and bump `version` in `pyproject.toml` (and `__version__` in `src/**/__init__.py` when present):
 
-Use [semantic versioning](https://semver.org/) in practice: patch for fixes, minor for compatible features, major for breaking changes.
+```bash
+./bump_changed_packages.py --dry-run
+./bump_changed_packages.py
+# or
+pixi run bump-changed-packages
 
-If you change the root meta-package dependencies or release a new aggregate, bump `version` in the root `pyproject.toml` as well.
+# Only specific packages (folder or PyPI name)
+./bump_changed_packages.py dataman --part patch
+
+# Bump even if git reports no changes (e.g. re-release after PyPI 400)
+./bump_changed_packages.py dataman --all
+
+# Bump and refresh dependency pins in one step
+./bump_changed_packages.py --sync-deps
+```
+
+By default, compares each package directory to the merge-base with `origin/main` / `main`, or `HEAD~1`. Override with `--since REF`. Use `--part minor` or `--part major` when needed. The root `ialgdev` meta-package is patch-bumped automatically when any sub-package is bumped (`--meta auto`).
+
+You can still edit versions by hand; use [semantic versioning](https://semver.org/) in practice.
 
 ### 4. Sync dependency pins across the workspace
 
@@ -109,6 +125,14 @@ pixi run publish-pypi algutils
 
 Publish **dependencies before dependents** when multiple packages changed (e.g. `ialdev-core` before `ialdev-dataman`).
 
+### Troubleshooting
+
+**HTTP 400 on upload** — PyPI does not allow re-uploading the same `name` + `version`. If `pip index versions ialdev-dataman` already lists your version, bump `version` in `pyproject.toml`, run `./sync_workspace_deps.py`, and publish again.
+
+`publish_pypi` skips packages whose version is already on PyPI (see script output).
+
+**Upload order** — publish `ialdev-core`, `ialdev-io`, `ialdev-maths`, `ialdev-img` before `ialdev-dataman` / `ialdev-vis` so dependency pins resolve on PyPI.
+
 To publish the meta-package from the repo root:
 
 ```bash
@@ -121,7 +145,7 @@ twine upload dist/*
 ## Checklist (release)
 
 - [ ] Code reviewed and tests pass (`pixi run test-all` or targeted tasks)
-- [ ] `version` bumped in each changed `<pkg>/pyproject.toml`
+- [ ] `version` bumped (`bump_changed_packages.py` or manual) in each changed `<pkg>/pyproject.toml`
 - [ ] Root `pyproject.toml` bumped if releasing `ialgdev`
 - [ ] `./sync_workspace_deps.py` run (no pending changes with `--check`)
 - [ ] Wheels build: `pixi run build-ialdev` or per-package `flit build --no-use-vcs`
@@ -144,11 +168,30 @@ The default Pixi workspace does not include `ialdev-annotations`; add it locally
 
 The Pixi workspace pins **Python 3.10** (`pixi.toml`). Package `requires-python` may allow broader ranges; avoid syntax that requires 3.11+ unless you raise the Pixi pin and test accordingly.
 
+## NumPy version
+
+All `ialdev-*` packages pin **`numpy>=1.26.4,<2`** so PyPI/pixi installs stay on NumPy 1.x and do not pull NumPy 2 into downstream workspaces that are not ready for it. Publish new package versions after changing this constraint.
+
+**Downstream Pixi workspaces** must use a compatible conda NumPy pin as well (e.g. `numpy = ">=1.26.4,<2"`). If conda selects NumPy 2.x, PyPI packages with `numpy<2` will not solve even when the correct `ialdev-dataman` version is requested.
+
+**Do not use** `ialdev-dataman==0.2.2` from PyPI (metadata incorrectly requires `numpy>=2.0`). Require **`>=0.2.4`** (or newer) where the `<2` cap is published.
+
+**Downstream consumers:** require **`ialdev-dataman>=0.2.4`** (and matching `ialdev-core>=0.2.4`). Older PyPI releases are unsafe for NumPy 1.x envs:
+
+| Release | Problem |
+|---------|---------|
+| `ialdev-dataman==0.2.2` | Declares `numpy>=2.0` |
+| `ialdev-core==0.2.2` | Declares `numpy>=2.0` |
+| `0.2.3` | NumPy floor only (`>=1.26.4`), no `<2`; still allows NumPy 2 |
+
+Consider [yanking](https://pypi.org/help/#yanked) `0.2.2` on PyPI so resolvers cannot select it.
+
 ## Related files
 
 | Path | Purpose |
 |------|---------|
+| `bump_changed_packages.py` | Patch/minor/major bump from git changes per package |
 | `sync_workspace_deps.py` | Propagate bumped `ialdev-*` versions into dependent `pyproject.toml` files |
 | `publish_pypi` | Batch `flit publish` for main sub-packages |
-| `pixi.toml` | Dev env and tasks (`sync-workspace-deps`, `build-ialdev`, `test-*`, `publish-pypi`) |
+| `pixi.toml` | Dev env and tasks (`bump-changed-packages`, `sync-workspace-deps`, `build-ialdev`, `test-*`, `publish-pypi`) |
 | `README.md` | User-facing install and package overview |

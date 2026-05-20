@@ -32,5 +32,6 @@ test-all = "MPLBACKEND=Agg python -m pytest -c pytest.ini"
 test-packages = "MPLBACKEND=Agg python -m pytest -c pytest.ini algutils/tests maths/tests fio/tests imgtools/tests"
 test-integration = "MPLBACKEND=Agg python -m pytest -c pytest.ini dataman/tests vis/tests"
 
+bump-changed-packages = "./bump_changed_packages.py"
 sync-workspace-deps = "./sync_workspace_deps.py"
 publish-pypi = "./publish_pypi"

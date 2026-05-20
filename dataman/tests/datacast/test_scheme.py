@@ -2,8 +2,11 @@ import os
 from pathlib import Path
 
 import pytest
+import yaml
 
-from iad.dataman.datacast.caster import PickleRelativePath
+from iad.dataman.datacast.caster import DataCaster, PickleRelativePath
+from iad.dataman.factories import create_caster
+from iad.dataman.models import SchemeRM
 from iad.core.tbox import TBox
 from iad.core.cache import Pickle, CacheInvalidError, CachedPipe, CacheMode
 from iad.core.fs.paths import TransPath
@@ -153,6 +156,55 @@ def test_relative_pickle_serializer(pths_gen):
     # saving and loading with correct values SHOULD PASS
     prp.save(pths_gen.correct_path, box) and prp.load(pths_gen.correct_path)
     assert prp.add_root(pths_gen.file_path) == pths_gen.correct_path.__str__()
+
+
+VEROSNAP_SCHEME_YAML = Path(__file__).parent / 'data/res/verosnap.scm.yml'
+
+
+@pytest.fixture
+def verosnap_scheme():
+    return SchemeRM.from_config(VEROSNAP_SCHEME_YAML)
+
+
+def test_create_caster_from_scheme_yaml_path(tmp_path):
+    """create_caster loads SchemeRM from a .scm.yml path and builds a DataCaster."""
+    caster = create_caster(scheme=VEROSNAP_SCHEME_YAML, source=tmp_path, cache=False)
+    assert caster.config.name == 'verosnap'
+    assert len(caster.config.search.samples) == 4
+    assert caster.config.mappings['alg']['grid'] == 'detect'
+    assert caster.root == tmp_path
+
+    caster_from_str = create_caster(scheme=str(VEROSNAP_SCHEME_YAML), source=tmp_path, cache=False)
+    assert caster_from_str.config.name == caster.config.name
+    assert caster_from_str.config.search.pattern == caster.config.search.pattern
+
+
+def test_debug_mode_verosnap_samples(verosnap_scheme):
+    """DataCaster debug mode labels scheme samples without a dataset root."""
+    scheme = verosnap_scheme
+    samples = scheme.search.samples
+    caster = DataCaster(
+        name=scheme.name,
+        root=samples,
+        search=scheme.search,
+        labels=scheme.labels,
+        mappings=scheme.mappings,
+        bundle=scheme.bundle,
+    )
+    results = {lbs['path']: lbs for lbs in caster.iter()}
+    assert set(results) == set(samples)
+    expected = {
+        samples[0]: dict(vru='16', session=samples[0].split('/')[2], alg='match', view='bev', kind='image', ext='jpg'),
+        samples[1]: dict(vru='16', session=samples[1].split('/')[2], kind='meta', ext='json'),
+        samples[2]: dict(vru='16', session=samples[2].split('/')[2], alg='cam', view='cam1', kind='image', ext='jpg'),
+        samples[3]: dict(vru='16', session=samples[3].split('/')[2], alg='detect', view='bev', kind='image', ext='jpg'),
+    }
+    for path, exp in expected.items():
+        lbs = results[path]
+        for key, value in exp.items():
+            assert lbs[key] == value, f"{path}: {key}={lbs.get(key)!r}, expected {value!r}"
+        assert lbs['path'] == path
+        assert 'date' in lbs
 
 
 def test_piped_relative_pickle_serializer_(pths_gen):

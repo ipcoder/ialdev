@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ialgdev"
-version = "0.2.1"
+version = "0.2.4"
 description = "Meta package: aggregates ialdev-* libraries (install from repo root or PyPI)"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -27,15 +27,15 @@ classifiers = [
 ]
 
 dependencies = [
-    "ialdev-core>=0.2.2",
-    "ialdev-maths>=0.2.1",
-    "ialdev-io>=0.2.0",
-    "ialdev-img>=0.2.0",
-    "ialdev-dataman>=0.2.2",
-    "ialdev-vis>=0.2.0",
-    "ialdev-engines>=0.2.0",
+    "ialdev-core>=0.2.4",
+    "ialdev-maths>=0.2.3",
+    "ialdev-io>=0.2.2",
+    "ialdev-img>=0.2.2",
+    "ialdev-dataman>=0.2.5",
+    "ialdev-vis>=0.2.2",
+    "ialdev-engines>=0.2.1",
     "pandas>=1.3.0",
-    "numpy>=1.20.0",
+    "numpy>=1.26.4,<2",
     "pydantic>=2.0",
     "pyyaml>=5.4.0",
     "ruamel.yaml>=0.15.0",
@@ -46,7 +46,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-annotations = ["ialdev-annotations>=0.2.0"]
+annotations = ["ialdev-annotations>=0.2.1"]
 dev = [
     "pytest>=7.0.0",
     "pytest-cov>=3.0.0",
@@ -55,7 +55,7 @@ dev = [
     "mypy>=0.950",
 ]
 all = [
-    "ialgdev[dev]>=0.2.1",
+    "ialgdev[dev]>=0.2.4",
 ]
 
 [project.urls]

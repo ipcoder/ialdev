@@ -10,7 +10,7 @@ Use this package to describe datasets with resource models, discover YAML-backed
 pip install ialdev-dataman
 ```
 
-Requires Python `>=3.10`, NumPy `>=2.0`, and pandas `>=2.0.0`.
+Requires Python `>=3.10`, NumPy `>=1.26.4,<2`, and pandas `>=2.0.0`.
 
 ## Highlights
 

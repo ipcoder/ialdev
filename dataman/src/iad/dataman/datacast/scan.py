@@ -58,6 +58,11 @@ class GuideScan(YamlModel, hash_exclude=['_pather', '_match_skip_folders']):
     _pather: PrivateAttr = PrivateAttr()
     _match_skip_folders: PrivateAttr = PrivateAttr()
 
+    @property
+    def parse(self):
+        """Parse a string into labels using the pattern (shortcut to internal parse function)"""
+        return self._pather.regex.parse
+
     def verify_samples(self, fail=False):
         """Return list of sample failed parsing"""
         total = self.samples and len(self.samples) or 0

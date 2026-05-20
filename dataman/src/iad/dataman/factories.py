@@ -20,12 +20,17 @@ def create_caster(name_or_dataset=None, *, source=None, scheme=None,
 
         create_caster('ETH3D')
         create_caster(source='/data/ETH3D', scheme='ETH3D')
+        create_caster(scheme='/path/to/scheme.scm.yml', source='/data/root')
         create_caster(DatasetRM(source='/', scheme='*'))
 
     :returns: a fully-constructed DataCaster
     """
-    from .models import DatasetRM
+    from .models import DatasetRM, SchemeRM
     from .datacast.caster import DataCaster
+    from pathlib import Path
+
+    if isinstance(scheme, (str, Path)):
+        scheme = SchemeRM.from_config(scheme)
 
     config_args = dict(
         name=name_or_dataset, source=source, scheme=scheme,

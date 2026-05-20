@@ -23,6 +23,55 @@ Notes:
 EOF
 }
 
+read_project_version() {
+  local pyproject="$1"
+  python3 - "$pyproject" <<'PY'
+import re, sys
+text = open(sys.argv[1], encoding="utf-8").read()
+in_project = False
+for line in text.splitlines():
+    s = line.strip()
+    if s == "[project]":
+        in_project = True
+        continue
+    if in_project and s.startswith("[") and s != "[project]":
+        break
+    if in_project:
+        m = re.match(r'^version\s*=\s*"([^"]+)"', line)
+        if m:
+            print(m.group(1))
+            raise SystemExit(0)
+raise SystemExit("no version in [project]")
+PY
+}
+
+read_distribution_name() {
+  local pyproject="$1"
+  python3 - "$pyproject" <<'PY'
+import re, sys
+text = open(sys.argv[1], encoding="utf-8").read()
+in_project = False
+for line in text.splitlines():
+    s = line.strip()
+    if s == "[project]":
+        in_project = True
+        continue
+    if in_project and s.startswith("[") and s != "[project]":
+        break
+    if in_project:
+        m = re.match(r'^name\s*=\s*"([^"]+)"', line)
+        if m:
+            print(m.group(1))
+            raise SystemExit(0)
+raise SystemExit("no name in [project]")
+PY
+}
+
+pypi_has_version() {
+  local name="$1" version="$2"
+  curl -sf "https://pypi.org/pypi/${name}/${version}/json" >/dev/null 2>&1
+}
+
 resolve_package_dir() {
   local name="$1"
   case "$name" in
@@ -81,11 +130,23 @@ for pkg_dir in "${requested[@]}"; do
     continue
   fi
 
-  echo "Publishing $pkg_dir ..."
-  (
+  dist_name="$(read_distribution_name "$pyproject")"
+  version="$(read_project_version "$pyproject")"
+  if pypi_has_version "$dist_name" "$version"; then
+    echo "Skip $pkg_dir: $dist_name==$version is already on PyPI (bump version in pyproject.toml)." >&2
+    continue
+  fi
+
+  echo "Publishing $pkg_dir ($dist_name==$version) ..."
+  if ! (
     cd "$pkg_path"
     flit publish
-  )
+  ); then
+    echo "Publish failed for $dist_name." >&2
+    echo "If PyPI returned HTTP 400, the version may already exist or metadata may be invalid." >&2
+    echo "Check: pip index versions $dist_name" >&2
+    exit 5
+  fi
 done
 
 echo "Done."

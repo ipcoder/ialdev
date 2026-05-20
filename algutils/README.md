@@ -10,7 +10,7 @@ Use this package when you need the shared building blocks used by the other `ial
 pip install ialdev-core
 ```
 
-Requires Python `>=3.10`, NumPy `>=2.0`, and pandas `>=2.1.0`.
+Requires Python `>=3.10`, NumPy `>=1.26.4,<2`, and pandas `>=2.1.0`.
 
 ## Highlights
 
