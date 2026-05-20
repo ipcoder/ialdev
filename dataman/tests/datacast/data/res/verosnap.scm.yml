@@ -1,0 +1,26 @@
+name: verosnap
+description: test scheme
+bundle: [vru, session, capture_time]
+search:
+  pattern: >-
+    vru{vru:\d+}/images/{session:[\w-]+}/{date:[0-9_]+}/(?:{view:cam\d+}|(?:obstacle_map/occupancy_(?P<alg>grid_processed|grid))|)_?[a-z0-9-]+(?:\.(?P<kind>meta))?\.(?P<ext>jpg|json)
+
+  method: relative
+  max_depth: 7
+  samples:
+    - vru16/images/2026-05-10_12_16_26_b63303ca57/2026_05_10_08_33_23/obstacle_map/occupancy_grid_processed_e761f6da-2480-445d-8a5f-05408c4f3613.jpg
+    - vru16/images/2026-05-10_12_16_26_b63303ca57/2026_05_10_08_33_23/e761f6da-2480-445d-8a5f-05408c4f3613.meta.json
+    - vru16/images/2026-05-10_12_16_26_b63303ca57/2026_05_10_08_33_23/cam1_e761f6da-2480-445d-8a5f-05408c4f3613.jpg
+    - vru16/images/2026-05-10_12_16_26_b63303ca57/2026_05_10_08_33_23/obstacle_map/occupancy_grid_e761f6da-2480-445d-8a5f-05408c4f3613.jpg
+
+mappings:
+  alg: { 'grid': detect, grid_processed: match}
+
+if alg == 'detect' or alg == 'match':
+  view: bev
+
+if view and 'cam' in view:
+  alg: cam
+
+if ext == 'jpg':
+  kind: image
