@@ -4,7 +4,7 @@ build-backend = "flit_core.buildapi"
 
 [project]
 name = "ialdev-img"
-version = "0.2.2"
+version = "0.2.3"
 description = "iad.img — image transforms, regions, and stereo camera models"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -13,9 +13,9 @@ authors = [
     {name = "ipcoder"}
 ]
 dependencies = [
-    "ialdev-core>=0.2.4",
-    "ialdev-io>=0.2.2",
-    "ialdev-maths>=0.2.3",
+    "ialdev-core>=0.2.5",
+    "ialdev-io>=0.2.3",
+    "ialdev-maths>=0.2.4",
     "numpy>=1.26.4,<2",
     "xxhash>=3.0.0",
     "toolz>=0.11.0",
@@ -34,5 +34,6 @@ name = "iad.img"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+addopts = "--import-mode=importlib"
 python_files = ["test_*.py"]
 pythonpath = ["src"]

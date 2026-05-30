@@ -1,3 +1,4 @@
+from typing import Literal
 import numpy as np
 
 from .regions import Regions
@@ -61,6 +62,39 @@ def crop(im, rect):
     src, trg = _crop_slices(rect, im.shape)
     new_im[trg] = im[src]
     return new_im
+
+def resize(im: np.ndarray, *, width: int, height: int, 
+           keep_pixel_ratio: Literal['pad', 'crop', 'no']='no', interp: str = 'bilinear') -> np.ndarray:
+    """Resize image (2D or 3D array) to given width and height using the given interpolation method.
+    
+    If resizing requires breaking the pixel aspect ratio, and keep_pixel_ratio != 'no', keep pixel ratio by:
+        - 'pad': pad the image with zeros to the new aspect ratio
+        - 'crop': center-crop the image to the new aspect ratio
+    Implement resizing using skimage.transform.resize with the given interpolation method.
+    
+    :param im: input image
+    :param width: new width
+    :param height: new height
+    :param keep_pixel_ratio: 'pad' | 'crop' | 'no' (case insensitive)
+    :param interp: interpolation method (case insensitive)
+    :return: resized image
+    """
+    from skimage.transform import resize as sk_resize
+
+    order = {'nearest': 0, 'bilinear': 1, 'linear': 1, 'bicubic': 3, 'cubic': 3}[interp.lower()]
+    h, w = im.shape[:2]
+    target_h, target_w = round(w * height / width), round(h * width / height)
+    mode = keep_pixel_ratio.lower()
+    if mode == 'pad' and (target_h > h or target_w > w):
+        dh, dw = max(0, target_h - h), max(0, target_w - w)
+        pads = [(dh // 2, dh - dh // 2), (dw // 2, dw - dw // 2)] + [(0, 0)] * (im.ndim - 2)
+        im = np.pad(im, pads)
+    elif mode == 'crop' and (target_h < h or target_w < w):
+        im = center_crop(im, min(w, target_w), min(h, target_h))
+     
+    out_shape = (height, width) + im.shape[2:]
+    resized = sk_resize(im, out_shape, order=order, preserve_range=True, anti_aliasing=(order > 0))
+    return resized.astype(im.dtype, copy=False)
 
 
 def image_2D(im: np.ndarray):

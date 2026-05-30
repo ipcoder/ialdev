@@ -373,9 +373,56 @@ def test_append_col():
                   [4, 5, 6],
                   [7, 8, 9]], index=pd.MultiIndex.from_tuples([(1, 1), (1, 2), (1, 3)]))
     dt.columns = pd.MultiIndex.from_tuples([(1, 1), (1, 2), (1, 3)])
-    append_col(dt, col='4', values=[10, 11, 12])
-    append_col(dt, col='4', values=[3, 1, 11])
+    dt = append_col(dt, col='4', values=[10, 11, 12])
+    dt = append_col(dt, col='4', values=[3, 1, 11])
     assert int(dt.loc[(1, 3), '4']) == 11
+
+
+def test_append_col_does_not_mutate_input():
+    """append_col must return a new frame and leave the input untouched (pandas 2 / CoW)."""
+    base = DT(data=[[1], [2]], columns=['a'])
+    out = pdt.append_col(base, col='b', values=[10, 20])
+    assert 'b' not in base.columns       # input untouched
+    assert out['b'].tolist() == [10, 20]  # result carries the new column
+
+
+def test_reduce_level_aggregation():
+    """`_reduce` replaces the removed pandas-1 `level=` aggregation argument."""
+    idx = pd.MultiIndex.from_product([['a', 'b'], [1, 2]], names=['g', 'i'])
+    s = DS([1.0, 3.0, 10.0, 20.0], index=idx)
+    df = DT({'v': [1.0, 3.0, 10.0, 20.0], 'w': [2.0, 4.0, 6.0, 8.0]}, index=idx)
+
+    # by level -> grouped result indexed by that level
+    assert pdt._reduce(s, 'mean', level='g').to_dict() == {'a': 2.0, 'b': 15.0}
+    assert pdt._reduce(s, 'sum', level='g').to_dict() == {'a': 4.0, 'b': 30.0}
+    assert pdt._reduce(s, 'count', level='g').to_dict() == {'a': 2, 'b': 2}
+    assert pdt._reduce(df, 'sum', level='g').loc['a'].to_dict() == {'v': 4.0, 'w': 6.0}
+
+    # no level -> plain reduction
+    assert pdt._reduce(s, 'sum') == 34.0
+    assert pdt._reduce(df, 'mean')['v'] == 8.5
+
+
+def test_bitwise_or_is_elementwise_for_masks():
+    """The custom __or__ must not hijack boolean-mask combination (`mask | mask`)."""
+    idx = pd.MultiIndex.from_product([['a', 'b'], [1, 2]], names=['g', 'i'])
+    s = DS([1.0, np.nan, np.inf, -np.inf], index=idx)
+    assert (s.isnull() | np.isinf(s)).tolist() == [False, True, True, True]
+
+    df = DT({'x': [1.0, np.nan], 'y': [np.inf, 2.0]})
+    assert (df.isnull() | ~np.isfinite(df)).values.tolist() == [[False, True], [True, False]]
+
+
+def test_or_dict_still_adds_index_level():
+    """The dict form of `|` keeps its index-level-appending behaviour."""
+    dt = DT({'v': [1, 2]})
+    out = dt | dict(mode='X', fid='001')
+    assert 'mode' in out.index.names and 'fid' in out.index.names
+    assert out.index.get_level_values('mode').tolist() == ['X', 'X']
+
+    dt2 = DT({'v': [1, 2]})
+    dt2 |= dict(mode='Y')
+    assert dt2.index.get_level_values('mode').tolist() == ['Y', 'Y']
 
 
 def test_sample(sdt):

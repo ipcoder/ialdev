@@ -222,16 +222,20 @@ def apply_column_transform(df: pd.Series | pd.DataFrame, *,
             except:
                 return fallback(g)
 
-    df_out[out] = df_out.apply(func, axis=1)
+    # These are deliberate writes into the working frame; suppress the
+    # false-positive SettingWithCopyWarning when the caller passed a frame
+    # that pandas flags as a copy-of-slice (e.g. a `.qix()`/`.select()` result).
+    with pd.option_context('mode.chained_assignment', None):
+        df_out.loc[:, out] = df_out.apply(func, axis=1)
 
-    if drop is True:
-        drop = set(inputs) - {out} | {trans}
-    if drop:
-        if not inplace:
-            df.drop(drop, axis=1, inplace=True)  # drop used columns in the original df, if returning new df
-            return df_out.drop(drop, axis=1)
-        df_out.drop(drop, axis=1, inplace=True)  # drop used columns in the inplace df
-    return df_out
+        if drop is True:
+            drop = set(inputs) - {out} | {trans}
+        if drop:
+            if not inplace:
+                df.drop(drop, axis=1, inplace=True)  # drop used columns in the original df, if returning new df
+                return df_out.drop(drop, axis=1)
+            df_out.drop(drop, axis=1, inplace=True)  # drop used columns in the inplace df
+        return df_out
 
 
 def row_func_prepend_transform(fnc: Callable, trans=Col.read_trans, inp=Col.path, out=Col.data):
@@ -533,7 +537,7 @@ class Fetchable:
         trans_labels = [Col.path, Col.read_trans]
 
         if self.empty:
-            self['data'] = None
+            self.loc[:, 'data'] = None
             return self
 
         if not isinstance(self, pd.DataFrame):  # Series, must be already with data
@@ -551,7 +555,10 @@ class Fetchable:
         if reuse or check_file:  # change to conditional read if required
             kws = {'check_file': check_file} | (reuse and {'check_data': reuse} or {})
             trans = '__cond_trans__'
-            self[trans] = O(cond_read_trans, **kws)
+            # Deliberate write into self (fetch documents in-place data loading);
+            # suppress the false-positive copy-of-slice warning.
+            with pd.option_context('mode.chained_assignment', None):
+                self.loc[:, trans] = O(cond_read_trans, **kws)
             trans_args = dict(drop=trans, args='series', inp=None)  # series with all columns
         else:
             trans = Col.read_trans

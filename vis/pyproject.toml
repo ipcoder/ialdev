@@ -4,7 +4,7 @@ build-backend = "flit_core.buildapi"
 
 [project]
 name = "ialdev-vis"
-version = "0.2.2"
+version = "0.2.3"
 description = "iad.vis — visualization utilities (image grids, viewers, colormaps, matplotlib helpers)"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -23,8 +23,8 @@ classifiers = [
 ]
 
 dependencies = [
-    "ialdev-core>=0.2.4",
-    "ialdev-io>=0.2.2",
+    "ialdev-core>=0.2.5",
+    "ialdev-io>=0.2.3",
     "matplotlib>=3.5.0",
     "numpy>=1.26.4,<2",
     "regex>=2021.0.0",
@@ -51,7 +51,7 @@ dev = [
     "pytest-cov>=3.0.0",
 ]
 all = [
-    "ialdev-vis[graphviz,qt,jupyter,3d,dev]>=0.2.2",
+    "ialdev-vis[graphviz,qt,jupyter,3d,dev]>=0.2.3",
 ]
 
 [project.urls]
@@ -64,6 +64,7 @@ name = "iad.vis"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+addopts = "--import-mode=importlib"
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]

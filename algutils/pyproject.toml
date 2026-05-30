@@ -4,7 +4,7 @@ build-backend = "flit_core.buildapi"
 
 [project]
 name = "ialdev-core"
-version = "0.2.4"
+version = "0.2.5"
 description = "iad.core — algorithmic utilities: data tools, parameters, paths, caching, and more"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -63,6 +63,7 @@ name = "iad.core"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+addopts = "--import-mode=importlib"
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]

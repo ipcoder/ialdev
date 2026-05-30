@@ -4,6 +4,7 @@ import logging
 import re
 import warnings
 from collections import namedtuple
+from collections.abc import Mapping
 from dataclasses import dataclass
 from functools import cmp_to_key
 from io import StringIO
@@ -767,7 +768,7 @@ class TablePainter:
             styled.set_caption(self.cap)
 
         if self.prec is not None:
-            styled.set_precision(self.prec)
+            styled.format(precision=self.prec)
 
         if not self.disp:
             return styled
@@ -817,8 +818,8 @@ def side_tables(*tables, caps=None, hide_index=None, painter=None, **kws):
                     index.names = [None] * len(index.names)
                     columns = table.columns[[0]]
                     t = pd.DataFrame(data=np.arange(len(table.index)), index=index, columns=columns).style
-                    yield t.hide_columns([*columns]), None
-                yield table.hide_index(), cap
+                    yield t.hide([*columns], axis="columns"), None
+                yield table.hide(axis="index"), cap
             else:
                 yield table, cap
 
@@ -1320,6 +1321,24 @@ def trans(s, max_col_width=20):
     return ss
 
 
+def _format_display_cell(value, fnc):
+    """Apply a ``TableFormats`` cell formatter, while leaving null cells empty.
+
+    NA detection is guarded to scalars so array-like cells (the very ones we
+    want to compact, e.g. ndarrays) never reach the ambiguous ``pd.isna``
+    truth-value check.
+    """
+    if value is None:
+        return ""
+    if np.ndim(value) == 0:
+        try:
+            if pd.isna(value):
+                return ""
+        except (TypeError, ValueError):
+            pass
+    return fnc(value)
+
+
 def _invert_levels(levels, names):
     if isinstance(levels, (str, int)):
         levels = [levels]
@@ -1329,7 +1348,70 @@ def _invert_levels(levels, names):
         return names.difference(levels)
 
 
+def _reduce(obj: PTable, op: str, *, axis=0, level=None, numeric_only=None):
+    """Apply a reduction (``'mean'`` | ``'sum'`` | ``'count'``) over an axis, or,
+    if ``level`` is given, by grouping that index level.
+
+    This replaces the ``level=`` argument of the aggregation methods, which was
+    removed in pandas 2.0 in favour of ``groupby(level=...)``.
+    """
+    num_kws = {} if (numeric_only is None or op == 'count') else dict(numeric_only=numeric_only)
+    if level is not None:
+        # GroupBy methods are the stock pandas implementations, so this also
+        # bypasses any aggregation overrides on the table subclasses.
+        return getattr(obj.groupby(level=level), op)(**num_kws)
+    # Call the unbound pandas method explicitly to bypass subclass overrides
+    # (e.g. _TableMixIn.mean), matching the pre-pandas-2 behaviour.
+    base = pd.Series if isinstance(obj, pd.Series) else pd.DataFrame
+    if base is pd.Series:
+        return getattr(base, op)(obj, **num_kws)
+    return getattr(base, op)(obj, axis=axis, **num_kws)
+
+
 class _TableMixIn:
+
+    def _display_frame(self) -> pd.DataFrame:
+        """Build a plain ``pd.DataFrame`` copy for marimo's interactive table.
+
+        Object columns (which may hold large ndarrays, dicts, paths, ...) are
+        replaced by their compact ``TableFormats`` string representation, the
+        same one used by ``_repr_html_``. Numeric / bool / datetime / string
+        columns are left native so marimo keeps real sorting and filtering.
+
+        A plain ``pd.DataFrame`` (not a ``DataTable``) is returned on purpose:
+        it has no ``_display_`` of its own, so marimo applies its built-in
+        opinionated formatter and renders an interactive, sortable, filterable
+        table whose cells are already short.
+        """
+        src = self if self.ndim == 2 else self._prep_repr()
+        plain = pd.DataFrame(src)
+        formatters = TableFormats.formatters(plain)
+        for i, fnc in enumerate(formatters):
+            if fnc is None or plain.dtypes.iloc[i] != object:
+                continue
+            col = plain.iloc[:, i]
+            plain.isetitem(i, col.map(lambda v, _f=fnc: _format_display_cell(v, _f)))
+        return plain
+
+    def _display_(self):
+        """marimo display protocol.
+
+        Has the highest precedence in marimo's formatter resolution, so it
+        overrides marimo's built-in opinionated formatter for ``pd.DataFrame``
+        / ``pd.Series`` (which would otherwise dump full ndarray contents for
+        the ``data`` column and similar).
+
+        We return a plain ``pd.DataFrame`` with object columns pre-rendered to
+        compact strings, so marimo still shows its interactive table (sorting,
+        filtering, pagination) but without dumping large arrays. On any failure
+        we fall back to the static rich HTML used by Jupyter.
+        """
+        try:
+            return self._display_frame()
+        except Exception:
+            import marimo as mo
+            html = self._repr_html_()
+            return mo.plain(self) if html is None else mo.Html(html)
 
     def as_labels(self, index=True, data=False, squeeze=False) -> Labels | list[Labels]:
         """
@@ -1436,7 +1518,7 @@ class _TableMixIn:
         if strict:
             missing = set(levels).difference(index_names)
             if missing:
-                tbl = tbl.stack([*missing])  # will raise her if not found in columns
+                tbl = tbl.stack([*missing], future_stack=True)  # will raise her if not found in columns
                 index_names.update(missing)
 
         tbl = tbl.unstack([*index_names.difference(levels)], **kws)
@@ -1469,7 +1551,13 @@ class _TableMixIn:
                     raise KeyError(f"Levels {missing} not found in index {tbl.index.names}")
                 col_names.update(missing)
 
-        tbl = tbl.stack([*col_names.difference(levels)], **kws)  # Need remove NULL rows?
+        # pandas 2: the new stack (future_stack=True) no longer accepts/handles
+        # `dropna`/`sort` and never drops NaN rows, so emulate the old default.
+        dropna = kws.pop('dropna', True)
+        kws.pop('sort', None)
+        tbl = tbl.stack([*col_names.difference(levels)], future_stack=True, **kws)
+        if dropna:
+            tbl = tbl.dropna(how='all') if tbl.ndim > 1 else tbl.dropna()
 
         if tbl.ndim > 1 and tbl.columns.nlevels > 1:  # if there are col levels
             levels = [lvl for lvl in levels if lvl in col_names]
@@ -1730,8 +1818,6 @@ class _TableMixIn:
         Tutorial:
         Using this DataTable:
 
-        >>> from iad.core.tests.test_pdtools import sdt_general
-        >>> dt= sdt_general()
         >>> dt # doctest: +NORMALIZE_WHITESPACE
         z   data1          data2
         w       a  b  c  d     a  b  c  d
@@ -1896,15 +1982,13 @@ class _TableMixIn:
             Include only float, int, boolean columns. If None, will attempt to use
             everything, then use only numeric data. Not implemented for Series.
         """
-        series = isinstance(self, pd.Series)
-        kws = dict(axis=axis, level=level, numeric_only=numeric_only)
-        mean = (pd.Series if series else pd.DataFrame).mean(self.nominal_value, **kws)
+        mean = _reduce(self.nominal_value, 'mean', axis=axis, level=level, numeric_only=numeric_only)
         if not (hasattr(mean, 'index') and hasattr(self, 'nominal_value')) or self.std_dev.sum().sum() == 0:
             return mean
 
-        kws.update(level=level)
-        num = self.std_dev.count(**(dict(level=level) if series else kws))
-        sd = ((self.std_dev ** 2).sum(**kws) / num) ** 0.5
+        num = _reduce(self.std_dev, 'count', axis=axis, level=level)
+        sd = (_reduce(self.std_dev ** 2, 'sum', axis=axis, level=level,
+                      numeric_only=numeric_only) / num) ** 0.5
         from uncertainties.unumpy import uarray
         return mean.__class__(uarray(mean, sd), index=mean.index,
                               **({} if mean.ndim == 1 else {'columns': mean.columns}))
@@ -1930,11 +2014,14 @@ class _TableMixIn:
             self = self.unstack_but(ws.index.names)  # align indices
             assert ws.shape[0] == self.shape[0], f"{ws.shape=} vs {self.shape=}"
 
-        ws = ws / ws.sum(level=level)
-        avr = (self.multiply(ws, 0)).sum(level=level).unstack_but(level)
+        if level is None:
+            ws = ws / ws.sum()
+        else:
+            ws = ws / ws.groupby(level=level).transform('sum')
+        avr = _reduce(self.multiply(ws, 0), 'sum', level=level).unstack_but(level)
         if unc:
             from uncertainties.unumpy import uarray
-            sd = ((self.sub(avr) ** 2).multiply(ws, 0).sum(level=level)) ** 0.5
+            sd = (_reduce((self.sub(avr) ** 2).multiply(ws, 0), 'sum', level=level)) ** 0.5
             if unc is True:
                 data = uarray(avr.values, sd.values)
                 return DataSeries(data, index=avr.index) if avr.ndim == 1 else \
@@ -1948,11 +2035,17 @@ class _TableMixIn:
         index_names = self.index.names
         return pd.concat([self.reset_index(), other.reset_index()]).set_index(list(index_names))
 
-    def __or__(self: DTable, other: dict):
+    def __or__(self: DTable, other):
+        # Only the dict form adds index levels; delegate everything else
+        # (e.g. boolean masks ``mask_a | mask_b``) to the pandas operator.
+        if not isinstance(other, Mapping):
+            return super().__or__(other)
         (out := self.copy()).__ior__(other)
         return out
 
-    def __ior__(self: DTable, other: dict):
+    def __ior__(self: DTable, other):
+        if not isinstance(other, Mapping):
+            return super().__ior__(other)
         new_levels = list(other)
         self[new_levels] = [*other.values()]
         self.set_index(new_levels, append=True, inplace=True)
@@ -2021,7 +2114,8 @@ def path_fixer(root, fixer_name, cols='path') -> Callable[[pd.DataFrame], pd.Dat
 
     def fix_path(df):
         if columns := [c for c in df.columns if c in cols]:
-            df[columns] = df[columns].applymap(fixer(root))
+            df = df.copy()
+            df[columns] = df[columns].map(fixer(root))
         return df
 
     return fix_path
@@ -2262,8 +2356,9 @@ def append_col(df: pd.DataFrame,
                    by cols and the added into  `df`
     :param levels: optionally provide names for the levels,
                    must be same number of them as the final levels
-    :return: return the input df (the operations are inplace)
+    :return: a new data frame with the column(s) added (the input is not modified)
     """
+    df = df.copy()
 
     def add_levels(n):
         df.columns = pd.MultiIndex.from_product([df.columns, *[*[['']] * n]])
@@ -2516,7 +2611,7 @@ def filter_full_groups(df, group) -> (pd.DataFrame, int):
     group = as_list(group)
     mv_idx = df.index.names.difference(group)
     df = df.reset_index(mv_idx)  # leave only 'scene' in the index
-    full_groups = df.groupby(group).apply(lambda x: issubset_report(x.kind, ))
+    full_groups = df.groupby(group).apply(lambda x: issubset_report(x.kind, ), include_groups=False)
     df = df.loc[full_groups[full_groups].index]
     bad_scenes = (full_groups == False).sum()
     groups_num = len(full_groups) - bad_scenes
