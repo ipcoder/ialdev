@@ -75,3 +75,6 @@ Thumbs.db
 .remember/*
 /.cursor/
 /.claude/
+
+# Node (vis/js frontend build — install on site with npm install)
+node_modules/

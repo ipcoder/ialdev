@@ -1,0 +1,50 @@
+.iad-imgrid {
+  font-family: system-ui, sans-serif;
+  font-size: 13px;
+  color: #222;
+  user-select: none;
+}
+
+.iad-imgrid__toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.iad-imgrid__toolbar label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.iad-imgrid__canvas-wrap {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid #ccc;
+  background: #1a1a1a;
+  cursor: crosshair;
+}
+
+.iad-imgrid__canvas {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.iad-imgrid__readout {
+  margin-top: 6px;
+  padding: 6px 8px;
+  background: #f4f4f4;
+  border: 1px solid #ddd;
+  font-family: ui-monospace, monospace;
+  font-size: 12px;
+  white-space: pre-wrap;
+  min-height: 1.4em;
+}
+
+.iad-imgrid__title {
+  font-weight: 600;
+  margin-bottom: 4px;
+}

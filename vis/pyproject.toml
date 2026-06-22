@@ -41,6 +41,15 @@ qt = [
 jupyter = [
     "ipywidgets>=7.0.0",
     "IPython>=7.0.0",
+    "plotly>=5.20",
+    "anywidget>=0.9",
+]
+notebook = [
+    "anywidget>=0.9",
+]
+marimo = [
+    "marimo>=0.9",
+    "plotly>=5.20",
 ]
 "3d" = [
     "open3d>=0.15.0",
@@ -51,7 +60,7 @@ dev = [
     "pytest-cov>=3.0.0",
 ]
 all = [
-    "ialdev-vis[graphviz,qt,jupyter,3d,dev]>=0.2.3",
+    "ialdev-vis[graphviz,qt,jupyter,notebook,marimo,3d,dev]>=0.2.3",
 ]
 
 [project.urls]
