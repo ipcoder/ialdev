@@ -1,6 +1,6 @@
 import pytest
 
-from iad.core.fs.filesproc import Locator, Path
+from iad.core.fs.filesproc import Locator, Path, inc_file_sfx
 
 
 def test_locator(tmp_path):
@@ -94,4 +94,33 @@ def test_locator_not_responsive(tmp_path):
 
     loc.validate(alarm=True)   # removes the "invalid" folder
     assert not any(loc.defined()), "Must have failed to validate in 0 time"
+
+
+def test_inc_file_sfx_returns_unused_path(tmp_path):
+    path = tmp_path / 'result.txt'
+
+    assert inc_file_sfx(path) == path
+
+
+def test_inc_file_sfx_starts_suffix_when_file_exists(tmp_path):
+    path = tmp_path / 'result.txt'
+    path.touch()
+
+    assert inc_file_sfx(path) == tmp_path / 'result_1.txt'
+
+
+def test_inc_file_sfx_increments_max_suffix(tmp_path):
+    path = tmp_path / 'result.txt'
+    (tmp_path / 'result_1.txt').touch()
+    (tmp_path / 'result_3.txt').touch()
+    (tmp_path / 'result_other.txt').touch()
+
+    assert inc_file_sfx(path) == tmp_path / 'result_4.txt'
+
+
+def test_inc_file_sfx_supports_custom_separator(tmp_path):
+    path = tmp_path / 'result.txt'
+    (tmp_path / 'result-2.txt').touch()
+
+    assert inc_file_sfx(path, sep='-') == tmp_path / 'result-3.txt'
 

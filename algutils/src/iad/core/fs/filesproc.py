@@ -215,6 +215,32 @@ def rename_files_by_ref(files: Union[Iterable, str], ref_files: Union[Iterable, 
     return old_new_pairs
 
 
+def inc_file_sfx(path, sep='_'):
+    """Given full path (<dir>/<stem>.<ext>) find if there are any files with such name 
+    or with additional suffix (<dir>/<stem><sep><num>.<ext>'),
+    and create a new name with suffix incremented over the maximal found.
+
+     - if only `path` start with '_1'
+     - if `path` is not found:
+         - found with suffixes - increment max suffix
+         - otherwise return the path    
+    """
+    path = Path(path).expanduser()
+    base = path.stem + sep
+    pat = re.compile(re.escape(base) + r'(\d+)')
+    last = max((
+        int(m.group(1))
+        for p in path.parent.iterdir() 
+        if p.is_file() and (m := pat.fullmatch(p.stem))
+    ), default=None)
+    
+    if last is None:    
+        stem = base + '1' if path.exists() else path.stem
+    else:
+        stem = base + str(last+1)
+    return path.with_stem(stem)
+
+
 def normalize(path: PathT, out: Type[Path] | Type[str] | None = Path):
     """
     Translate path into canonical form expanding user but not resolving links.
