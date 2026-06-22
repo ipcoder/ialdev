@@ -1050,6 +1050,56 @@ def _expand_vec_values(pairs: list[tuple[Scalar, Scalar | Vector]], prev_expande
         yield prev_expanded  # return as received - start aggregation
 
 
+def pivot_flat(df, base: str | list[str], *, pivot: str | list[str], 
+               index: bool | list[str] | str | None = None, sep=','):
+    """
+    In the given dataframe creates multi-index columns by adding `pivot` levels to the `base` columns` 
+    and flattens them into str using sep.
+
+    All the operations are done using on both df.columns and df.index.names.
+
+    Sets `index` columns as multi-index levels.
+     - if `index` is True, use all the remaining columns not mentioned in `pivot`.
+     - if `index` is False, index is reset completely
+     - if `index` is None, leaves original index levels (except of pivoted).    
+    """
+    remove = lambda x, c : [_ for _ in x if _ not in c]
+
+    org_index = df.index.names if isinstance(df.index, pd.MultiIndex) else []
+    org_columns = df.columns    
+    all_labels = [*org_index, *org_columns]
+
+    invalid = list(filter(lambda _: not isinstance(_, (str, type(None))), org_columns))
+    assert not invalid, f"Some of columns/ index levels are not strings: {invalid}"
+
+    def check(x, name):
+        x = as_list(x)    
+        assert x, f"At least one {x} needed" 
+        assert not (_:= set(x).difference(all_labels)), f"Unknown {name}: {_}"
+        return x
+
+    base, pivot = check(base, 'base'), check(pivot, 'pivot')
+
+    # leave only base as columns, and then pivot reuired levels     
+    df = df.set_index(remove(all_labels, base)).unstack(pivot)
+    df.columns = [sep.join(col) for col in df.columns] # flatten columns names into str
+
+    if index is True:
+        index = df.index.names
+    elif index is False:
+        index = []
+    elif index is None:
+        index = re|move(org_index, pivot)
+    else:
+        index = as_list(index)
+        assert not (_:= set(index).difference(df.index.names)), f"Invaid index levels: {_}"
+
+    pivot_columns = list(df.columns)
+    to_columns = remove(df.index.names, index)
+    df = df.reset_index(to_columns)
+    return df, pivot_columns
+
+
 def _row_queries_gen(labels, levels, levels_map) -> Generator[list[tuple[int, Scalar]]]:
     """
     Generator of mult-index row queries in form of:
@@ -1790,18 +1840,32 @@ class _TableMixIn:
 
     def qix(self: PTable, *anonymous,
             drop_level: bool | Collection = False, keep: Collection = None,
-            axis: AxisT = None, key_err=True, **named) -> PTable:
+            axis: AxisT = None, key_err=True, reorder=False, **named) -> PTable:
         """
         Filter a dataframe or series using fuzzy query of its multi-index.
-        Arguments in different forms describe the index values to be searched for.
 
-        Some index levels in the output can be dropped by specifying either
-        ``drop_level`` or ``keep`` (mutually exclusive) arguments.
+        ``qix`` is a FILTER, not a selector: each requested value may match
+        zero, one, or many rows, and results follow the table's storage
+        order. For structured, ordered, one-row-per-label retrieval (e.g.
+        ``img, gt = ...``) use :meth:`select`.
 
-        Use ``drop_level=True`` to drop all the redundant levels used in the query, or
-        just provide one (or list) of specific levels to drop.
-        Would not drop if the level is important for indexing the data (there is no redundancy),
-        even if specified in the drop_level list
+        Capabilities, from simple to advanced:
+
+        1. One level by name:        ``dt.qix(w='a')``
+        2. Several levels (AND):     ``dt.qix(w='a', x='1')``
+        3. Several values per level: ``dt.qix(w=['b', 'a'])``
+           (membership; rows stay in storage order)
+        4. Both axes auto-matched:   ``dt.qix(w='a', y='4')``
+           - restrict with ``axis='index'``/``'columns'`` (or 0/1)
+        5. Anonymous values:         ``dt.qix('a', '3')``
+           - search a value without naming its level (error if ambiguous)
+        6. Collapse redundant levels with ``drop_level`` / ``keep``:
+           ``dt.qix(w='a', drop_level=True)`` (drops only when one value remains)
+        7. Tolerate misses with ``key_err=False`` (returns empty table)
+        8. Opt-in ordering:          ``dt.qix(w=['b', 'a'], reorder=True)``
+           - with ``reorder=True`` the listed values define each level's
+             output order (first keyword = primary key; unqueried levels keep
+             storage order), and duplicate listed values raise ``ValueError``.
 
         :param self: The table to filter
         :param anonymous: list of values from one of the index levels
@@ -1811,6 +1875,10 @@ class _TableMixIn:
         :param keep: a collection of levels to keep - excludes using drop_level
         :param axis: if specified query only this axis
         :param key_err: raise KeyError if index not found or return empty
+        :param reorder: if True, reorder results to the order values are listed
+                     per level (kwargs order = precedence) and raise ValueError
+                     on duplicate listed values. Default False (pure filter,
+                     storage order).
         :param named:  {level: value} - specific levels to find,
                             eliminates exhaustive search in all levels
         :return: Filtered table
@@ -1862,6 +1930,17 @@ class _TableMixIn:
         x
         1      1      5
         2      1      5
+
+        By default qix is a filter and keeps storage order. Pass
+        ``reorder=True`` to order results by the values you list.
+        Example 4 - opt-in ordering (note y follows the listed [5, 3]):
+
+        >>> dt.qix(x='1', y=['5','3'], drop_level=True, reorder=True) # doctest: +NORMALIZE_WHITESPACE
+        z data1       data2
+        w     a b c d     a b c d
+        y
+        5     1 2 3 4     5 6 7 8
+        3     1 2 3 4     5 6 7 8
         """
         # ToDo: add option to search not only in the index
         # FixMe: self.empty check twice!
@@ -1907,6 +1986,17 @@ class _TableMixIn:
                 raise err
             logging.debug(f'qix:\n{err}')
             return self.iloc[0:0]
+
+        if reorder:
+            for lvl, val in named.items():
+                vals = as_list(val)
+                if len(vals) != len(set(vals)):
+                    raise ValueError(f"Duplicate values with reorder=True: {lvl=}, {vals=}")
+            for ax, axis_kws in enumerate(axs_kws):
+                # follow kwargs (named) order so the first listed level is primary
+                ordered = {lvl: named[lvl] for lvl in named if lvl in axis_kws}
+                if ordered and (keys := order_keys(res.axes[ax], ordered)):
+                    res = res.take(np.lexsort(keys[::-1]), axis=ax)
 
         if drop_level:
             to_set = lambda x: {x} if isinstance(x, (str, int)) else set(x)
@@ -2071,6 +2161,30 @@ class _TableMixIn:
         from hashlib import sha256
         hash_value = sha256(pd.util.hash_pandas_object(self, index=index).values)
         return hash_value.hexdigest()[-n:]
+
+
+def order_keys(axis_index: pd.Index | pd.MultiIndex, kws) -> list[np.ndarray]:
+    """ Positional sort keys to reorder rows by the order values are listed.
+
+    For each level whose requested value is a list of two or more values,
+    map every axis entry to the position of its value in that list. Levels
+    with a scalar / single value are skipped (no reordering needed).
+
+    Args:
+        axis_index: the (multi-)index of the already-filtered axis
+        kws: {level: value | [values]} requested for this axis
+
+    Returns: list of int key arrays, one per listed level (kwargs order)
+    """
+    keys = []
+    for lvl, val in kws.items():
+        vals = as_list(val)
+        if len(vals) < 2:
+            continue
+        pos = {v: i for i, v in enumerate(vals)}
+        level_vals = axis_index.get_level_values(lvl) if axis_index.nlevels > 1 else axis_index
+        keys.append(level_vals.map(pos).to_numpy())
+    return keys
 
 
 def slicer(index: pd.Index | pd.MultiIndex, kws):

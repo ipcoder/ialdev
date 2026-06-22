@@ -326,6 +326,34 @@ def test_qix_anonymous(sdt):
         sdt.qix('Im not there')
 
 
+def test_qix_reorder(sdt):
+    # default is a pure filter: storage order, not requested order
+    qixed = sdt.qix(x='1', y=['5', '3'])
+    assert list(qixed.index.get_level_values('y')) == ['3', '5']
+    # opt-in reorder follows the listed order, single index level
+    qixed = sdt.qix(x='1', y=['5', '3'], reorder=True)
+    assert list(qixed.index.get_level_values('y')) == ['5', '3']
+    # reorder on the columns axis
+    qixed = sdt.qix(z='data1', w=['c', 'a'], reorder=True)
+    assert list(qixed.columns.get_level_values('w')) == ['c', 'a']
+    # multi-level: first kwarg ('y') is the primary key
+    qixed = sdt.qix(y=['5', '3'], x=['2', '1'], reorder=True)
+    assert list(qixed.index.get_level_values('y'))[:2] == ['5', '5']
+    assert list(qixed.index.get_level_values('x'))[:2] == ['2', '1']
+
+
+def test_qix_reorder_duplicates_raise(sdt):
+    # duplicates are rejected only under reorder=True
+    with pytest.raises(ValueError):
+        sdt.qix(y=['3', '3'], reorder=True)
+    with pytest.raises(ValueError):
+        sdt.qix(w=['a', 'a'], reorder=True)
+    with pytest.raises(ValueError):
+        sdt.qix('a', w='a', reorder=True)
+    # without reorder the same duplicates are tolerated (no raise)
+    assert sdt.qix(y=['3', '3']) is not None
+
+
 def test_freeze(multi_label_data_table):
     dt = multi_label_data_table
     initial_id = id(dt)
@@ -618,6 +646,8 @@ if __name__ == '__main__':
     test_qix_basic(sdt)
     test_qix_specified(sdt)
     test_qix_anonymous(sdt)
+    test_qix_reorder(sdt)
+    test_qix_reorder_duplicates_raise(sdt)
     test_freeze()
     test_kron()
     test_outer()

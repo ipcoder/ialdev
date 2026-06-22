@@ -741,24 +741,41 @@ class DataCollection:
         return trg
 
     def qix(self, *args, drop_level: bool = False, trans=False,
-            axis=None, key_err=True, as_dc=False, **kws) -> CollectTable | DataCollection:
-        """Fuzzy query of data collection index and return either filtered
-        version of the data collection (as_dc argument) or
-        filtered `db` table, optionally in *transformed* formed (data loaded).
+            axis=None, key_err=True, reorder=False, as_dc=False, **kws) -> CollectTable | DataCollection:
+        """Filter a data collection's index and return either a filtered
+        view of the data collection (``as_dc``) or the filtered ``db`` table,
+        optionally in *transformed* form (data loaded).
 
-        Different query types are supported:
-         - by
+        Like :meth:`DataTable.qix` this is a FILTER (values match
+        zero/one/many rows in storage order); matching is delegated to it
+        (see there for the full grammar: named levels, multi-value lists,
+        anonymous values, drop_level/keep, and opt-in reorder). For ordered
+        one-row-per-label retrieval, prefer ``select``. On top of the filter:
 
-        :param args: list of values from one of the index levels
-                     - will try all until first is found or raise KeyError
+        1. Smart query (same as db.qix):
+           ``dc.qix(view='cam1')`` / ``dc.qix(view=['cam1','cam2'], reorder=True)``
+        2. Direct index selection - pass a single list/tuple/Index to index
+           ``db`` directly (bypasses fuzzy matching; raises if any label misses):
+           ``dc.qix([('u1','cam1'), ('u2','cam2')])``
+        3. ``trans=True`` - apply column transforms so data is loaded (e.g.
+           images); returns a DataSeries of the data column.
+        4. ``as_dc=True`` (or a name str) - return a new DataCollection
+           preserving bundle/history metadata instead of a plain table.
+
+        ``trans=True`` and ``as_dc=True`` are mutually exclusive (ValueError).
+
+        :param args: anonymous values, or a single index / list-of-indices
+                     for direct selection
         :param drop_level: if True - drop found levels from the result
         :param trans: if True apply data transforms when producing results
         :param axis: if specified query only this axis
         :param key_err: if False ignore key errors
+        :param reorder: forward to DataTable.qix (order by listed values;
+                     raises on duplicates). Default False.
         :param as_dc: results are returned as a new DataCollection
         :param kws:  {level: value} - eliminates exhaustive search in all levels
 
-        :return: Transformed selection's data as DataSeries object.
+        :return: filtered db table, DataSeries (trans=True), or DataCollection (as_dc=True).
         """
         import pandas as pd
         # support of usage of direct index instead of smart queries
@@ -773,7 +790,7 @@ class DataCollection:
             if len(sub) != (len(idx) if isinstance(idx, list) else 1):
                 raise IndexError("Invalid index passed to qix")
         else:  # query based indexing
-            sub = self.db.qix(*args, drop_level=drop_level, axis=axis, key_err=key_err, **kws)
+            sub = self.db.qix(*args, drop_level=drop_level, axis=axis, key_err=key_err, reorder=reorder, **kws)
 
         if trans:
             import pandas as pd
