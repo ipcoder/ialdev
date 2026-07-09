@@ -14,11 +14,12 @@ from typing import Any, Literal
 
 import numpy as np
 
-from iad.vis.insight import (
-    KeyProcessor,
+from iad.vis.gridcore import (
     MosaicParser,
+    _KEY_COLOR_MAP,
     _assign_cmaps,
     _optimal_fig_size,
+    _resize_images,
     _to_clim_list,
     assign_args_names,
     convert_image_data,
@@ -26,13 +27,54 @@ from iad.vis.insight import (
     title_str,
 )
 
-_CMAP_MENU = tuple(KeyProcessor.cmaps.values())
+_CMAP_MENU = tuple(_KEY_COLOR_MAP.values())
 _DPI = 96
 # Plotly heatmaps embed every z value as JSON text (~10–20 bytes/pixel). Without
 # downsampling, a few full-resolution panels routinely exceed marimo's output cap.
 _DEFAULT_MAX_PIXELS = 400_000
 _DEFAULT_MAX_TOTAL_PIXELS = 800_000
 _MARIMO_MAX_TOTAL_PIXELS = 500_000
+# Drag-to-pan + scroll-to-zoom together, rather than Plotly's default
+# drag-to-box-zoom, matches typical image-viewer expectations.
+_DEFAULT_CONFIG: dict[str, Any] = {'scrollZoom': True}
+
+# Injected via Plotly's `post_script` hook (raw JS glued in after the plot is
+# created). Plotly.py cannot define custom modebar button `click` handlers
+# through the JSON-serialised `config` dict (the function would just become a
+# quoted string), so the button and its behaviour are built by hand and
+# appended into the rendered modebar DOM instead. Only works for standalone
+# HTML output ('figure' backend / static `_repr_mimebundle_` fallback);
+# marimo's and Jupyter's widget-based renderers don't expose this hook.
+_GRID_TOGGLE_JS = """
+var gd = document.getElementById('{plot_id}');
+gd._iadGridOn = __INITIAL__;
+function iadToggleGrid() {
+    var next = !gd._iadGridOn;
+    var update = {};
+    Object.keys(gd._fullLayout || {}).forEach(function(key) {
+        if (/^(xaxis|yaxis)\\d*$/.test(key)) {
+            update[key + '.showgrid'] = next;
+        }
+    });
+    Plotly.relayout(gd, update).then(function() { gd._iadGridOn = next; });
+}
+var modebar = gd.querySelector('.modebar-group:last-child') || gd.querySelector('.modebar-container');
+if (modebar && !gd.querySelector('.iad-grid-toggle')) {
+    var btn = document.createElement('a');
+    btn.className = 'modebar-btn iad-grid-toggle';
+    btn.setAttribute('rel', 'tooltip');
+    btn.setAttribute('data-title', 'Toggle gridlines');
+    btn.style.fontSize = '1.1em';
+    btn.style.lineHeight = '1';
+    btn.innerHTML = '<span>\\u25A6</span>';
+    btn.addEventListener('click', iadToggleGrid);
+    modebar.appendChild(btn);
+}
+"""
+
+
+def _grid_toggle_script(show_grid: bool) -> str:
+    return _GRID_TOGGLE_JS.replace('__INITIAL__', 'true' if show_grid else 'false')
 
 
 def _require_plotly():
@@ -165,6 +207,32 @@ def _axis_ids(row: int, col: int, ncols: int) -> tuple[str, str]:
     if axis_num == 1:
         return 'x', 'y'
     return f'x{axis_num}', f'y{axis_num}'
+
+
+def _axis_domain(fig: Any, axis_id: str, prefix: str) -> tuple[float, float]:
+    """Fractional (paper-coordinate) domain of a subplot axis, e.g. 'y3' -> yaxis3.domain."""
+    suffix = axis_id[1:]  # 'x' -> '', 'x3' -> '3'
+    return tuple(fig.layout[f'{prefix}{suffix}'].domain)
+
+
+def _panel_colorbar(fig: Any, x_id: str, y_id: str) -> dict[str, Any]:
+    """Thin colorbar hugging the right edge of one subplot's own domain.
+
+    With y tick labels hidden past the first column (see build_figure), the
+    horizontal gap between columns is free and fits this without widening it.
+    """
+    _, x1 = _axis_domain(fig, x_id, 'xaxis')
+    y0, y1 = _axis_domain(fig, y_id, 'yaxis')
+    return dict(
+        title='',
+        x=x1,
+        xanchor='left',
+        xpad=0,  # Plotly defaults to 10px of padding here, which reopens the gap
+        y=(y0 + y1) / 2,
+        yanchor='middle',
+        len=(y1 - y0) * 0.9,
+        thickness=10,
+    )
 
 
 def _mosaic_subplot_map(grid: MosaicParser) -> dict[str, tuple[int, int]]:
@@ -318,6 +386,7 @@ def build_figure(
     window_title: str | None = None,
     cmap_menu: bool = True,
     clim_slider: bool = True,
+    show_grid: bool = False,
     height: int | None = None,
     width: int | None = None,
     max_pixels: int = 2_000_000,
@@ -366,12 +435,12 @@ def build_figure(
             panel_positions.append((idx // cols + 1, idx % cols + 1))
 
     heatmap_trace_indices: list[int] = []
-    shared_clim = len({clim for clim in clims if clim}) == 1 and len(clims) > 1
 
-    for panel_idx, ((image, _title), clim, cmap_name, (row, col)) in enumerate(
-        zip(prepared, clims, cmaps, panel_positions)
+    for (image, _title), clim, cmap_name, (row, col) in zip(
+        prepared, clims, cmaps, panel_positions
     ):
-        showscale = bool(cbar) and (panel_idx == 0 if shared_clim else True)
+        x_id, y_id = _axis_ids(row, col, shape[1])
+        showscale = bool(cbar)
         if _is_rgb_image(image):
             if image.dtype != np.uint8:
                 rgb = image
@@ -396,7 +465,7 @@ def build_figure(
                     zmin=zmin,
                     zmax=zmax,
                     showscale=showscale,
-                    colorbar=dict(title='') if showscale else None,
+                    colorbar=_panel_colorbar(fig, x_id, y_id) if showscale else None,
                     hovertemplate='x=%{x}<br>y=%{y}<br>val=%{z:.4g}<extra></extra>',
                 ),
                 row=row,
@@ -408,17 +477,20 @@ def build_figure(
             bins = 32 if hist is True else int(hist)
             _add_histogram_trace(fig, go, image, row, col, clim, bins)
 
-        x_id, _y_id = _axis_ids(row, col, shape[1])
         fig.update_yaxes(
             autorange='reversed',
             scaleanchor=x_id,
             scaleratio=1,
-            showticklabels='y' in ticks,
+            # only the first column needs y labels (shared_yaxes make them
+            # redundant elsewhere); frees the inter-column gap for colorbars
+            showticklabels='y' in ticks and col == 1,
+            showgrid=show_grid,
             row=row,
             col=col,
         )
         fig.update_xaxes(
             showticklabels='x' in ticks,
+            showgrid=show_grid,
             row=row,
             col=col,
         )
@@ -427,10 +499,14 @@ def build_figure(
         fig.update_xaxes(matches='x')
         fig.update_yaxes(matches='y')
 
+    # last column's colorbar sits past the rightmost domain edge (see
+    # _panel_colorbar); reserve enough right margin for it, not just the default.
+    right_margin = 50 if cbar and heatmap_trace_indices else 20
     layout_kwargs: dict[str, Any] = dict(
         height=fig_height,
         width=fig_width,
-        margin=dict(l=20, r=20, t=60 if window_title else 40, b=20),
+        dragmode='pan',
+        margin=dict(l=20, r=right_margin, t=60 if window_title else 40, b=20),
     )
     if window_title:
         layout_kwargs['title'] = dict(text=window_title)
@@ -485,6 +561,8 @@ class NbImgrid:
         inspect_enabled: bool,
         ui: Any = None,
         readout: Any = None,
+        config: dict[str, Any] | None = None,
+        show_grid: bool = False,
     ):
         self.figure = figure
         self.images = images
@@ -492,6 +570,8 @@ class NbImgrid:
         self.inspect_enabled = inspect_enabled
         self.ui = ui
         self.readout = readout
+        self.config = dict(_DEFAULT_CONFIG) if config is None else config
+        self.show_grid = show_grid
         self._selection: dict[str, Any] = {}
 
     @property
@@ -511,7 +591,12 @@ class NbImgrid:
         return _format_readout(x, y, self.images)
 
     def show(self) -> None:
-        self.figure.show()
+        show_kwargs: dict[str, Any] = dict(config=self.config)
+        if self.backend == 'figure':
+            # The modebar grid-toggle button is DOM-injected via post_script,
+            # only available for standalone HTML rendering (this backend).
+            show_kwargs['post_script'] = _grid_toggle_script(self.show_grid)
+        self.figure.show(**show_kwargs)
 
     def _display_(self) -> Any:
         import marimo as mo
@@ -542,6 +627,8 @@ class NbImgrid:
                 self.ui if self.ui is not None else self.figure,
                 include_plotlyjs='cdn',
                 full_html=False,
+                config=self.config,
+                post_script=_grid_toggle_script(self.show_grid) if self.ui is None else None,
             )
         except Exception:
             bundle['text/plain'] = repr(self)
@@ -553,10 +640,11 @@ def _wrap_marimo(
     images: list[tuple[np.ndarray, Any]],
     *,
     inspect_enabled: bool,
+    show_grid: bool = False,
 ) -> NbImgrid:
     import marimo as mo
 
-    plot_ui = mo.ui.plotly(fig)
+    plot_ui = mo.ui.plotly(fig, config=dict(_DEFAULT_CONFIG))
     return NbImgrid(
         fig,
         images,
@@ -564,6 +652,7 @@ def _wrap_marimo(
         inspect_enabled=inspect_enabled,
         ui=plot_ui,
         readout=mo.md('') if inspect_enabled else None,
+        show_grid=show_grid,
     )
 
 
@@ -578,6 +667,12 @@ def _wrap_jupyter(
         fig_widget = go.FigureWidget(fig)
     except ImportError:
         return NbImgrid(fig, images, backend='jupyter', inspect_enabled=False, ui=fig)
+    try:
+        # FigureWidget has no `config=` constructor arg; the internal _config
+        # dict must be reassigned (not mutated in place) to take effect.
+        fig_widget._config = fig_widget._config | _DEFAULT_CONFIG
+    except Exception:
+        pass
     readout = None
     if inspect_enabled:
         try:
@@ -609,20 +704,23 @@ def imgrid(
     cmap: str | list[str] = 'rain',
     cbar: bool = True,
     clim: Any = 'auto',
+    resize: Literal['no', 'up', 'down', 'error'] | bool = 'error',
     ticks: str = 'xy',
     hist: bool | int | None = False,
     window_title: str | None = None,
     inspect: bool = True,
-    cmap_menu: bool = True,
-    clim_slider: bool = True,
-    max_pixels: int = _DEFAULT_MAX_PIXELS,
-    max_total_pixels: int | None = None,
-    height: int | None = None,
-    width: int | None = None,
+    show_grid: bool = False,
     backend: Literal['auto', 'marimo', 'jupyter', 'figure'] = 'auto',
     out: bool | Literal['fig', 'ui', 'images', 'all'] = False,
     mosaic: bool | str | None = None,
+    # ply specific
+    height: int | None = None,
+    width: int | None = None,
+    cmap_menu: bool = False,
+    clim_slider: bool = False,
     adj_clim: bool | None = None,
+    max_pixels: int = _DEFAULT_MAX_PIXELS,
+    max_total_pixels: int | None = None,
     **imkw,
 ) -> NbImgrid | Any | None:
     """Show titled images in a Plotly grid for notebook environments.
@@ -634,6 +732,18 @@ def imgrid(
     grows quickly with resolution × panel count. Use ``max_pixels`` (per panel) and
     ``max_total_pixels`` (split across all panels) to stay within marimo/Jupyter
     output limits. In marimo the total budget defaults to a stricter cap.
+
+    Figures default to drag-to-pan with scroll-to-zoom enabled (rather than
+    Plotly's default drag-to-box-zoom). Use ``show_grid`` to set the initial
+    gridline visibility; a modebar button is also added to toggle it live
+    (standalone HTML / 'figure' backend only — marimo and Jupyter render
+    through widgets that don't support this DOM injection).
+
+    :param resize: how to handle images of different size.
+                - 'no' / False - leave images at their original size
+                - 'up' / True - resize all to largest height and width (nearest neighbour)
+                - 'down' - resize all to smallest height and width (nearest neighbour)
+                - 'error' - raise ValueError if sizes differ (default)
     """
     if mosaic:
         cbar, ticks = False, ''
@@ -657,6 +767,7 @@ def imgrid(
         enum_form='Stream_{}',
     )
     parsed = [convert_image_data(*item) for item in parsed]
+    parsed = _resize_images(parsed, resize)
     grid_spec = grid_layout(len(parsed), grid, transp)
     clims = _to_clim_list(clim_arg, parsed)
     cmaps = _assign_cmaps(cmap, len(parsed))
@@ -692,16 +803,17 @@ def imgrid(
         window_title=window_title,
         cmap_menu=cmap_menu,
         clim_slider=clim_slider,
+        show_grid=show_grid,
         height=height,
         width=width,
         max_pixels=panel_pixels,
     )
     if resolved == 'marimo':
-        result = _wrap_marimo(fig, parsed, inspect_enabled=inspect)
+        result = _wrap_marimo(fig, parsed, inspect_enabled=inspect, show_grid=show_grid)
     elif resolved == 'jupyter':
         result = _wrap_jupyter(fig, parsed, inspect_enabled=inspect)
     else:
-        result = NbImgrid(fig, parsed, backend='figure', inspect_enabled=False)
+        result = NbImgrid(fig, parsed, backend='figure', inspect_enabled=False, show_grid=show_grid)
 
     if out:
         payload = {

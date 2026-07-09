@@ -47,7 +47,7 @@ config = TBox(drop_undef(root="/data", cache=None))
 ```python
 from iad.io import imread, imsave
 from iad.img.tools import center_crop
-from iad.vis import imgrid
+from iad.vis.insight import imgrid
 
 image = imread("frame.tif")
 crop = center_crop(image, width=256, height=256)

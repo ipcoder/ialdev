@@ -35,7 +35,7 @@ Requires Python `>=3.10`.
 ## Examples
 
 ```python
-from iad.vis import imgrid, imhist
+from iad.vis.insight import imgrid, imhist
 
 imgrid(left_image, right_image, titles=["left", "right"], clim="auto")
 imhist(left_image, right_image, titles=["left", "right"])
@@ -65,4 +65,4 @@ cd vis/js && npm install && npm run build
 
 **Roadmap:** WebGL renderer (large images), ROI / line-profile tools, live histogram panel, linked selections into pandas/marimo cells, mosaic layouts.
 
-**Note:** `iad.vis.plgrid` remains a lightweight Plotly overview option; desktop/Qt inspection still uses `iad.vis.imgrid` (matplotlib).
+**Note:** `iad.vis.plgrid` remains a lightweight Plotly overview option; desktop/Qt inspection still uses `iad.vis.insight.imgrid` (matplotlib).
