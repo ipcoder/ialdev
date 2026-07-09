@@ -185,6 +185,17 @@ def test_imgrid_show_grid_adj_clim_traits():
     assert result.widget.panels[0]['layout']
 
 
+def test_mogrid_wgt_backend():
+    from unittest.mock import patch
+
+    from iad.vis.mutils import Backend, mogrid
+
+    with patch('iad.vis.imview.imgrid', return_value='wgt-grid') as mock_imgrid:
+        out = mogrid(rand(4, 4), backend=Backend.WGT)
+    assert out == 'wgt-grid'
+    mock_imgrid.assert_called_once()
+
+
 def test_max_zoom_and_downsample_mutually_exclusive():
     from iad.vis.imview import imgrid
 
@@ -279,6 +290,19 @@ def test_imgrid_data_over_budget():
     big = rand(500, 500)
     result = imgrid(big, backend='widget', max_zoom='full', max_pixels=10_000)
     assert result.widget.data_over_budget is True
+
+
+def test_mogrid_figsize_passthrough():
+    from unittest.mock import patch
+
+    from iad.vis.mutils import Backend, mogrid
+
+    with patch('iad.vis.imview.imgrid', return_value='wgt-grid') as mock_imgrid:
+        out = mogrid(rand(4, 4), backend=Backend.WGT, figsize=(800, 600), max_zoom=2)
+    assert out == 'wgt-grid'
+    kwargs = mock_imgrid.call_args.kwargs
+    assert kwargs.get('figsize') == (800, 600)
+    assert kwargs.get('max_zoom') == 2
 
 
 def _buffer_scalar_sum(widget, panel_idx: int = 0) -> float:
