@@ -9,7 +9,7 @@ import numpy as np
 import traitlets
 
 from iad.vis.imview.colormaps import build_lut_map
-from iad.vis.imview.data import PanelData, PreparedGrid
+from iad.vis.imview.data import PreparedGrid
 
 _STATIC = Path(__file__).parent / 'static'
 
@@ -30,8 +30,48 @@ def _as_buffer_view(array: np.ndarray) -> memoryview:
     return memoryview(contiguous)
 
 
+def apply_prepared(widget: Any, prepared: PreparedGrid) -> None:
+    """Push every ``PreparedGrid`` field into widget traits (create and update).
+
+    Syncs panel metadata, binary buffers, colormap LUTs, canvas size, and
+    byte/pixel accounting without triggering redundant frontend redraws.
+    """
+    with widget.hold_trait_notifications():
+        widget.panels = [
+            {
+                'id': p.id,
+                'title': p.title,
+                'kind': p.kind,
+                'width': p.width,
+                'height': p.height,
+                'sourceWidth': p.source_width,
+                'sourceHeight': p.source_height,
+                'factor': p.factor,
+                'sentBytes': p.sent_bytes,
+                'fullBytes': p.full_bytes,
+                'cmap': p.cmap,
+                'clim': p.clim,
+                'layout': p.layout,
+                'cbar': p.cbar,
+            }
+            for p in prepared.panels
+        ]
+        widget.buffers = [_as_buffer_view(p.buffer) for p in prepared.panels]
+        widget.luts = dict(build_lut_map(prepared.cmaps))
+        widget.grid = prepared.grid
+        widget.cmaps = prepared.cmaps
+        widget.clims = [p.clim for p in prepared.panels]
+        widget.canvas_width = int(prepared.canvas_size[0])
+        widget.canvas_height = int(prepared.canvas_size[1])
+        widget.data_sent_bytes = int(prepared.sent_bytes)
+        widget.data_full_bytes = int(prepared.full_bytes)
+        widget.data_sent_pixels = int(prepared.sent_pixels)
+        widget.data_full_pixels = int(prepared.full_pixels)
+        widget.data_over_budget = bool(prepared.data_over_budget)
+
+
 class ImageGridWidget:
-    """Factory for the anywidget class (lazy import)."""
+    """Factory for the lazy-imported anywidget class."""
 
     _cls: type | None = None
 
@@ -45,40 +85,33 @@ class ImageGridWidget:
         hist: bool | int | None = False,
         window_title: str | None = None,
         inspect: bool = True,
+        show_grid: bool = False,
+        adj_clim: bool = False,
     ) -> Any:
+        """Instantiate the anywidget and apply ``prepared`` panel data.
+
+        Returns a widget with synced traits: ``panels``, ``buffers``, ``luts``,
+        ``canvas_width`` / ``canvas_height``, ``data_sent_*``, ``view``,
+        ``cursor``, and ``selection``. The ``value`` property mirrors cursor,
+        selection, and view state for marimo reactivity.
+        """
         anywidget = _require_anywidget()
         if cls._cls is None:
             cls._cls = cls._build_widget_class(anywidget)
-        luts = build_lut_map(prepared.cmaps)
-        panel_meta = [
-            {
-                'id': p.id,
-                'title': p.title,
-                'kind': p.kind,
-                'width': p.width,
-                'height': p.height,
-                'cmap': p.cmap,
-                'clim': p.clim,
-            }
-            for p in prepared.panels
-        ]
-        buffers = [_as_buffer_view(p.buffer) for p in prepared.panels]
-        return cls._cls(
-            panels=panel_meta,
-            buffers=buffers,
-            luts=dict(luts),
-            grid=prepared.grid,
-            cmaps=prepared.cmaps,
-            clims=[p.clim for p in prepared.panels],
+        widget = cls._cls(
             cbar=cbar,
             ticks=ticks,
             hist=bool(hist),
+            show_grid=show_grid,
+            adj_clim=adj_clim,
             window_title=window_title or '',
             inspect_enabled=inspect,
             view={'scale': 1.0, 'tx': 0.0, 'ty': 0.0},
             cursor={},
             selection={},
         )
+        apply_prepared(widget, prepared)
+        return widget
 
     @staticmethod
     def _build_widget_class(anywidget):
@@ -92,9 +125,18 @@ class ImageGridWidget:
             grid = traitlets.List(traitlets.Int()).tag(sync=True)
             cmaps = traitlets.List(traitlets.Unicode()).tag(sync=True)
             clims = traitlets.List().tag(sync=True)
+            canvas_width = traitlets.Int(320).tag(sync=True)
+            canvas_height = traitlets.Int(200).tag(sync=True)
+            data_sent_bytes = traitlets.Int(0).tag(sync=True)
+            data_full_bytes = traitlets.Int(0).tag(sync=True)
+            data_sent_pixels = traitlets.Int(0).tag(sync=True)
+            data_full_pixels = traitlets.Int(0).tag(sync=True)
+            data_over_budget = traitlets.Bool(False).tag(sync=True)
             cbar = traitlets.Bool(True).tag(sync=True)
             ticks = traitlets.Unicode('xy').tag(sync=True)
             hist = traitlets.Bool(False).tag(sync=True)
+            show_grid = traitlets.Bool(False).tag(sync=True)
+            adj_clim = traitlets.Bool(False).tag(sync=True)
             window_title = traitlets.Unicode('').tag(sync=True)
             inspect_enabled = traitlets.Bool(True).tag(sync=True)
             view = traitlets.Dict().tag(sync=True)

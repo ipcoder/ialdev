@@ -1,4 +1,4 @@
-import type { AnyModel, CursorState, PanelMeta, ViewState } from './types';
+import type { AnyModel, CursorState, DrawOptions, PanelMeta, ViewState } from './types';
 
 function toArrayBuffer(value: unknown): ArrayBuffer | null {
   if (value instanceof ArrayBuffer) return value;
@@ -79,6 +79,61 @@ export class GridModel {
     return this.model.get<string[]>('cmaps') ?? [];
   }
 
+  get cbar(): boolean {
+    return this.model.get<boolean>('cbar') ?? true;
+  }
+
+  get ticks(): string {
+    return this.model.get<string>('ticks') ?? 'xy';
+  }
+
+  get showGrid(): boolean {
+    return this.model.get<boolean>('show_grid') ?? false;
+  }
+
+  setShowGrid(value: boolean): void {
+    this.model.set('show_grid', value);
+  }
+
+  get drawOptions(): DrawOptions {
+    return {
+      cbar: this.cbar,
+      ticks: this.ticks,
+    };
+  }
+
+  get adjClim(): boolean {
+    return this.model.get<boolean>('adj_clim') ?? false;
+  }
+
+  get canvasWidth(): number {
+    return this.model.get<number>('canvas_width') ?? 320;
+  }
+
+  get canvasHeight(): number {
+    return this.model.get<number>('canvas_height') ?? 200;
+  }
+
+  get dataSentBytes(): number {
+    return this.model.get<number>('data_sent_bytes') ?? 0;
+  }
+
+  get dataFullBytes(): number {
+    return this.model.get<number>('data_full_bytes') ?? 0;
+  }
+
+  get dataSentPixels(): number {
+    return this.model.get<number>('data_sent_pixels') ?? 0;
+  }
+
+  get dataFullPixels(): number {
+    return this.model.get<number>('data_full_pixels') ?? 0;
+  }
+
+  get dataOverBudget(): boolean {
+    return this.model.get<boolean>('data_over_budget') ?? false;
+  }
+
   get inspectEnabled(): boolean {
     return this.model.get<boolean>('inspect_enabled') ?? true;
   }
@@ -101,6 +156,10 @@ export class GridModel {
 
   onChange(cb: () => void): void {
     this.model.on('change', cb);
+  }
+
+  onTrait(key: string, cb: () => void): void {
+    this.model.on(`change:${key}`, cb);
   }
 
   onBuffersReady(cb: () => void): void {

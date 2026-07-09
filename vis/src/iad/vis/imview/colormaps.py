@@ -6,13 +6,10 @@ from typing import Any
 
 import numpy as np
 
-from iad.vis.insight import KeyProcessor, register_custom_colormaps
+from iad.vis.insight import KeyProcessor
 
 _CMAP_MENU = tuple(KeyProcessor.cmaps.values())
 _LUT_SIZE = 256
-
-# Ensure custom colormaps (rain, wide, durange, ...) are registered.
-register_custom_colormaps()
 
 
 def mpl_lut_bytes(cmap: Any, n: int = _LUT_SIZE) -> bytes:

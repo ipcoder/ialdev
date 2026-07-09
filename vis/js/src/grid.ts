@@ -1,13 +1,11 @@
+import { displayPoint } from './canvas';
 import type { GridModel } from './model';
 import type { Renderer } from './renderer/Renderer';
+import type { PanelSelection } from './selection';
 import type { ViewState } from './types';
 
 function canvasPoint(canvas: HTMLCanvasElement, ev: MouseEvent | WheelEvent): { x: number; y: number } {
-  const rect = canvas.getBoundingClientRect();
-  return {
-    x: ((ev.clientX - rect.left) / rect.width) * canvas.width,
-    y: ((ev.clientY - rect.top) / rect.height) * canvas.height,
-  };
+  return displayPoint(canvas, ev);
 }
 
 function clamp(value: number, lo: number, hi: number): number {
@@ -41,6 +39,7 @@ export function attachPanZoom(
   model: GridModel,
   renderer: Renderer,
   onViewChange: () => void,
+  selection: PanelSelection,
 ): () => void {
   let dragging = false;
   let lastX = 0;
@@ -78,6 +77,11 @@ export function attachPanZoom(
     const point = canvasPoint(canvas, ev);
     const hit = renderer.panelAt(point.x, point.y);
     if (!hit) return;
+    if (ev.ctrlKey && ev.altKey) {
+      ev.preventDefault();
+      selection.toggle(hit.panelId);
+      return;
+    }
     dragging = true;
     activePanelId = hit.panelId;
     lastX = point.x;

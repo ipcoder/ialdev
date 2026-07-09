@@ -1,38 +1,56 @@
+import { syncHiDpiCanvas } from '../canvas';
+import { LabelsOverlay } from '../labels';
 import { recolorScalar } from '../colormap';
-import type { PanelMeta, ViewState } from '../types';
+import type { DrawOptions, PanelDrawOptions, PanelMeta, Rect, ViewState } from '../types';
+import { DEFAULT_PANEL_DRAW_OPTIONS } from '../types';
 import type { Renderer } from './Renderer';
 
 interface PanelState {
   meta: PanelMeta;
   source: Float32Array | Uint8Array;
-  rgba: ImageData | null;
+  bitmap: HTMLCanvasElement | null;
   lut: Uint8Array;
   lo: number;
   hi: number;
-  layout: { x: number; y: number; w: number; h: number };
+  opts: PanelDrawOptions;
 }
 
 export class Canvas2DRenderer implements Renderer {
   private canvas: HTMLCanvasElement | null = null;
   private ctx: CanvasRenderingContext2D | null = null;
+  private labels: LabelsOverlay | null = null;
   private panels: PanelState[] = [];
   private view: ViewState = { scale: 1, tx: 0, ty: 0 };
-  private pad = 4;
-  private titleH = 18;
+  private drawOptions: DrawOptions = { cbar: true, ticks: 'xy' };
+  private refWidth = 320;
+  private refHeight = 200;
+  private displayScale = 1;
+  private dpr = 1;
+  private highlightIds = new Set<number>();
 
-  init(canvas: HTMLCanvasElement, panels: PanelMeta[], grid?: [number, number]): void {
+  setHighlight(ids: number[]): void {
+    this.highlightIds = new Set(ids);
+  }
+
+  init(
+    canvas: HTMLCanvasElement,
+    panels: PanelMeta[],
+    canvasSize: [number, number],
+    labels?: LabelsOverlay,
+  ): void {
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d');
-    this.panels = panels.map((meta, i) => ({
+    this.labels = labels ?? null;
+    this.panels = panels.map((meta) => ({
       meta,
       source: new Float32Array(0),
-      rgba: null,
+      bitmap: null,
       lut: new Uint8Array(256 * 4),
       lo: meta.clim[0] ?? 0,
       hi: meta.clim[1] ?? 1,
-      layout: { x: 0, y: 0, w: 0, h: 0 },
+      opts: { ...DEFAULT_PANEL_DRAW_OPTIONS },
     }));
-    this._layoutPanels(panels, grid);
+    this.resizeCanvas(canvasSize[0], canvasSize[1]);
   }
 
   setBuffers(buffers: Array<Float32Array | Uint8Array>): void {
@@ -44,8 +62,7 @@ export class Canvas2DRenderer implements Renderer {
   }
 
   setColormap(panelId: number, lut: Uint8Array): void {
-    const idx = this.panels.findIndex((panel) => panel.meta.id === panelId);
-    const panelIdx = idx >= 0 ? idx : panelId;
+    const panelIdx = this._panelIndex(panelId);
     const p = this.panels[panelIdx];
     if (!p) return;
     p.lut = lut;
@@ -53,8 +70,7 @@ export class Canvas2DRenderer implements Renderer {
   }
 
   setClim(panelId: number, lo: number, hi: number): void {
-    const idx = this.panels.findIndex((panel) => panel.meta.id === panelId);
-    const panelIdx = idx >= 0 ? idx : panelId;
+    const panelIdx = this._panelIndex(panelId);
     const p = this.panels[panelIdx];
     if (!p) return;
     p.lo = lo;
@@ -66,38 +82,99 @@ export class Canvas2DRenderer implements Renderer {
     this.view = view;
   }
 
+  setDrawOptions(options: DrawOptions): void {
+    this.drawOptions = options;
+  }
+
+  setPanelOptions(panelId: number, partial: Partial<PanelDrawOptions>): void {
+    const p = this._panelById(panelId);
+    if (!p) return;
+    p.opts = { ...p.opts, ...partial };
+  }
+
+  getPanelOptions(panelId: number): PanelDrawOptions {
+    const p = this._panelById(panelId);
+    return p ? { ...p.opts } : { ...DEFAULT_PANEL_DRAW_OPTIONS };
+  }
+
+  syncDisplaySize(): void {
+    const canvas = this.canvas;
+    if (!canvas) return;
+    const metrics = syncHiDpiCanvas(canvas, this.refWidth, this.refHeight);
+    this.displayScale = metrics.displayScale;
+    this.dpr = metrics.dpr;
+  }
+
   draw(): void {
     const ctx = this.ctx;
     const canvas = this.canvas;
     if (!ctx || !canvas) return;
+    this.syncDisplaySize();
+    const scale = this.displayScale;
+    const dpr = this.dpr;
     ctx.save();
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.fillStyle = '#1a1a1a';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillRect(0, 0, this.refWidth * scale, this.refHeight * scale);
+    const origPerDisp = new Map<number, number>();
+    const sourceWindows = new Map<number, { x: number; y: number; w: number; h: number }>();
     for (const p of this.panels) {
-      const { x, y, w, h } = p.layout;
-      ctx.fillStyle = '#111';
-      ctx.fillRect(x - 2, y - this.titleH - 2, w + 4, h + this.titleH + 4);
-      ctx.fillStyle = '#eee';
-      ctx.font = '12px system-ui,sans-serif';
-      ctx.fillText(p.meta.title, x, y - 6);
-      if (p.rgba) {
-        const tmp = document.createElement('canvas');
-        tmp.width = p.meta.width;
-        tmp.height = p.meta.height;
-        tmp.getContext('2d')!.putImageData(p.rgba, 0, 0);
+      const layout = this._scaledRect(p.meta.layout);
+      const { x, y, w, h } = layout;
+      if (p.bitmap) {
         const source = this._sourceWindow(p);
-        ctx.drawImage(tmp, source.x, source.y, source.w, source.h, x, y, w, h);
+        sourceWindows.set(p.meta.id, source);
+        const pxPerBufferX = (w * dpr) / source.w;
+        const pxPerBufferY = (h * dpr) / source.h;
+        ctx.imageSmoothingEnabled = pxPerBufferX <= 1 && pxPerBufferY <= 1;
+        ctx.drawImage(p.bitmap, source.x, source.y, source.w, source.h, x, y, w, h);
+        const factor = p.meta.factor ?? 1;
+        const visibleOrigW = source.w * factor;
+        origPerDisp.set(p.meta.id, visibleOrigW / (w * dpr));
       }
-      ctx.strokeStyle = '#555';
+      if (p.opts.showGrid) {
+        this._drawGrid(ctx, layout);
+      }
+      if (this.drawOptions.cbar && p.meta.kind === 'scalar' && p.meta.cbar) {
+        this._drawColorbarStrip(ctx, p, this._scaledRect(p.meta.cbar));
+      }
+      if (this.highlightIds.has(p.meta.id)) {
+        ctx.strokeStyle = '#4a9eff';
+        ctx.lineWidth = 4;
+      } else {
+        ctx.strokeStyle = '#555';
+        ctx.lineWidth = 1;
+      }
       ctx.strokeRect(x, y, w, h);
     }
     ctx.restore();
+    if (this.labels) {
+      const clims = new Map<number, { lo: number; hi: number }>();
+      const panelShowGrid = new Map<number, boolean>();
+      for (const p of this.panels) {
+        clims.set(p.meta.id, { lo: p.lo, hi: p.hi });
+        panelShowGrid.set(p.meta.id, p.opts.showGrid);
+      }
+      this.labels.update(
+        this.panels.map((p) => p.meta),
+        scale,
+        this.drawOptions,
+        clims,
+        panelShowGrid,
+        origPerDisp,
+        sourceWindows,
+      );
+    }
   }
 
   pixelValue(panelId: number, x: number, y: number): number | [number, number, number] | null {
     const p = this._panelById(panelId);
     if (!p) return null;
+    const expected =
+      p.meta.kind === 'rgb'
+        ? p.meta.width * p.meta.height * 4
+        : p.meta.width * p.meta.height;
+    if (!p.source.length || p.source.length < expected) return null;
     const ix = Math.floor(x);
     const iy = Math.floor(y);
     if (ix < 0 || iy < 0 || ix >= p.meta.width || iy >= p.meta.height) return null;
@@ -107,16 +184,17 @@ export class Canvas2DRenderer implements Renderer {
       const base = idx * 4;
       return [src[base], src[base + 1], src[base + 2]];
     }
-    return (p.source as Float32Array)[idx];
+    const val = (p.source as Float32Array)[idx];
+    return Number.isFinite(val) ? val : null;
   }
 
   panelAt(canvasX: number, canvasY: number): { panelId: number; localX: number; localY: number } | null {
     for (const p of this.panels) {
-      const { x: px, y: py, w, h } = p.layout;
-      if (canvasX >= px && canvasX < px + w && canvasY >= py && canvasY < py + h) {
+      const { x, y, w, h } = this._scaledRect(p.meta.layout);
+      if (canvasX >= x && canvasX < x + w && canvasY >= y && canvasY < y + h) {
         const source = this._sourceWindow(p);
-        const lx = source.x + ((canvasX - px) / w) * source.w;
-        const ly = source.y + ((canvasY - py) / h) * source.h;
+        const lx = source.x + ((canvasX - x) / w) * source.w;
+        const ly = source.y + ((canvasY - y) / h) * source.h;
         return { panelId: p.meta.id, localX: lx, localY: ly };
       }
     }
@@ -136,64 +214,99 @@ export class Canvas2DRenderer implements Renderer {
     this.panels = [];
     this.canvas = null;
     this.ctx = null;
+    this.labels = null;
   }
 
   resizeCanvas(width: number, height: number): void {
-    if (!this.canvas) return;
-    this.canvas.width = width;
-    this.canvas.height = height;
+    this.refWidth = Math.max(1, width);
+    this.refHeight = Math.max(1, height);
+    const canvas = this.canvas;
+    if (canvas) {
+      canvas.style.aspectRatio = `${this.refWidth} / ${this.refHeight}`;
+      // Reference width (driven by figsize) is the target on-screen width,
+      // capped to the container via max-width so it shrinks on narrow screens.
+      canvas.style.width = `${this.refWidth}px`;
+    }
+    this.syncDisplaySize();
   }
 
-  private _layoutPanels(panels: PanelMeta[], grid?: [number, number]): void {
-    const rows = grid?.[0] ?? this._gridDims(panels.length).rows;
-    const cols = grid?.[1] ?? this._gridDims(panels.length).cols;
-    const maxW = Math.max(...panels.map((p) => p.width));
-    const maxH = Math.max(...panels.map((p) => p.height));
-    const cellW = maxW + this.pad * 2;
-    const cellH = maxH + this.titleH + this.pad * 2;
-    panels.forEach((meta, i) => {
-      const row = Math.floor(i / cols);
-      const col = i % cols;
-      const x = col * cellW + this.pad;
-      const y = row * cellH + this.titleH + this.pad;
-      const w = meta.width;
-      const h = meta.height;
-      this.panels[i].layout = { x, y, w, h };
-    });
-    const totalW = cols * cellW;
-    const totalH = rows * cellH;
-    this.resizeCanvas(Math.max(320, totalW), Math.max(200, totalH));
+  private _scaledRect(rect: Rect): Rect {
+    const scale = this.displayScale;
+    return {
+      x: rect.x * scale,
+      y: rect.y * scale,
+      w: rect.w * scale,
+      h: rect.h * scale,
+    };
   }
 
-  private _gridDims(n: number): { rows: number; cols: number } {
-    const cols = Math.max(1, Math.ceil(Math.sqrt(n)));
-    const rows = Math.max(1, Math.ceil(n / cols));
-    return { rows, cols };
+  private _drawColorbarStrip(ctx: CanvasRenderingContext2D, panel: PanelState, rect: Rect): void {
+    const { x, y, w, h } = rect;
+    const strip = document.createElement('canvas');
+    strip.width = 1;
+    strip.height = 256;
+    const sctx = strip.getContext('2d')!;
+    const row = sctx.createImageData(1, 256);
+    for (let i = 0; i < 256; i++) {
+      const idx = (255 - i) * 4;
+      row.data[idx] = panel.lut[i * 4];
+      row.data[idx + 1] = panel.lut[i * 4 + 1];
+      row.data[idx + 2] = panel.lut[i * 4 + 2];
+      row.data[idx + 3] = 255;
+    }
+    sctx.putImageData(row, 0, 0);
+    ctx.drawImage(strip, 0, 0, 1, 256, x, y, w, h);
+  }
+
+  private _drawGrid(ctx: CanvasRenderingContext2D, layout: Rect): void {
+    const { x, y, w, h } = layout;
+    const nx = 5;
+    const ny = 5;
+    ctx.strokeStyle = 'rgba(255,255,255,0.25)';
+    ctx.lineWidth = 1;
+    for (let i = 1; i < nx; i++) {
+      const gx = x + (w * i) / nx;
+      ctx.beginPath();
+      ctx.moveTo(gx, y);
+      ctx.lineTo(gx, y + h);
+      ctx.stroke();
+    }
+    for (let j = 1; j < ny; j++) {
+      const gy = y + (h * j) / ny;
+      ctx.beginPath();
+      ctx.moveTo(x, gy);
+      ctx.lineTo(x + w, gy);
+      ctx.stroke();
+    }
   }
 
   private _refreshPanel(panelIdx: number): void {
     const p = this.panels[panelIdx];
     if (!p || !p.source.length) return;
-    const expected =
-      p.meta.kind === 'rgb'
-        ? p.meta.width * p.meta.height * 4
-        : p.meta.width * p.meta.height;
+    const { width, height, kind } = p.meta;
+    const expected = kind === 'rgb' ? width * height * 4 : width * height;
     if (p.source.length < expected) return;
-    if (p.meta.kind === 'rgb') {
-      const src = p.source as Uint8Array;
-      const rgba = new ImageData(p.meta.width, p.meta.height);
-      rgba.data.set(src.subarray(0, p.meta.width * p.meta.height * 4));
-      p.rgba = rgba;
-      return;
+    let rgba: ImageData;
+    if (kind === 'rgb') {
+      rgba = new ImageData(width, height);
+      rgba.data.set((p.source as Uint8Array).subarray(0, width * height * 4));
+    } else {
+      rgba = recolorScalar(p.source as Float32Array, width, height, p.lut, p.lo, p.hi);
     }
-    p.rgba = recolorScalar(
-      p.source as Float32Array,
-      p.meta.width,
-      p.meta.height,
-      p.lut,
-      p.lo,
-      p.hi,
-    );
+    p.bitmap = this._toBitmap(rgba);
+  }
+
+  private _toBitmap(rgba: ImageData): HTMLCanvasElement {
+    const cv = document.createElement('canvas');
+    cv.width = rgba.width;
+    cv.height = rgba.height;
+    cv.getContext('2d')!.putImageData(rgba, 0, 0);
+    return cv;
+  }
+
+  private _panelIndex(panelId: number): number {
+    const idx = this.panels.findIndex((panel) => panel.meta.id === panelId);
+    return idx >= 0 ? idx : panelId;
   }
 
   private _panelById(panelId: number): PanelState | undefined {

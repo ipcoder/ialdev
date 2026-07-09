@@ -3,14 +3,67 @@
   font-size: 13px;
   color: #222;
   user-select: none;
+  display: flow-root;
 }
 
 .iad-imgrid__toolbar {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 8px;
   align-items: center;
   margin-bottom: 6px;
+  overflow: visible;
+}
+
+.iad-imgrid__data-readout {
+  flex: 0 0 auto;
+  padding: 2px 6px;
+  background: #1a1a1a;
+  color: #888;
+  font-family: ui-monospace, monospace;
+  font-size: 10px;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
+.iad-imgrid__data-readout--over-budget {
+  color: #e55;
+}
+
+.iad-imgrid__info {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin-right: auto;
+  padding: 2px 6px;
+  background: #1a1a1a;
+  color: #aaa;
+  font-family: ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
+  font-size: 10px;
+  line-height: 1.4;
+  white-space: pre;
+  overflow: hidden;
+  min-height: 1.4em;
+}
+
+.iad-imgrid__info-value {
+  font-variant-numeric: tabular-nums;
+}
+
+.iad-imgrid__info-value--hovered {
+  color: #eee;
+  font-weight: 700;
+}
+
+.iad-imgrid__controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.iad-imgrid__collapse-toggle {
+  flex-shrink: 0;
 }
 
 .iad-imgrid__toolbar label {
@@ -19,29 +72,127 @@
   gap: 4px;
 }
 
+.iad-imgrid__dropdown {
+  position: relative;
+  display: inline-block;
+}
+
+.iad-imgrid__dropdown__button {
+  min-width: 8em;
+  text-align: left;
+  height: 1.75em;
+  box-sizing: border-box;
+}
+
+.iad-imgrid__dropdown__menu {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 10;
+  margin-top: 2px;
+  min-width: 100%;
+  max-height: 12em;
+  overflow-y: auto;
+  padding: 2px;
+  background: #fff;
+  border: 1px solid #bbb;
+  border-radius: 3px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+}
+
+.iad-imgrid__dropdown__item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.iad-imgrid__dropdown__item:hover {
+  background: #eee;
+}
+
+.iad-imgrid__toolbar select,
+.iad-imgrid__toolbar input,
+.iad-imgrid__toolbar button {
+  font: inherit;
+  color: inherit;
+  background: #859496;
+  border: 1px solid #bbb;
+  border-radius: 3px;
+  padding: 2px 6px;
+  height: 1.75em;
+  box-sizing: border-box;
+}
+
+.iad-imgrid__toolbar button {
+  cursor: pointer;
+  min-width: 1.75em;
+  padding: 2px 8px;
+}
+
+.iad-imgrid__toolbar button[aria-pressed='true'] {
+  background: #97a6ab;
+  border-color: #888;
+}
+
 .iad-imgrid__canvas-wrap {
   position: relative;
   overflow: hidden;
   border: 1px solid #ccc;
   background: #1a1a1a;
   cursor: crosshair;
+  line-height: 0;
 }
 
 .iad-imgrid__canvas {
   display: block;
   width: 100%;
+  max-width: 100%;
   height: auto;
 }
 
-.iad-imgrid__readout {
-  margin-top: 6px;
-  padding: 6px 8px;
-  background: #f4f4f4;
-  border: 1px solid #ddd;
-  font-family: ui-monospace, monospace;
+.iad-imgrid__labels {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+  font-family: system-ui, sans-serif;
+}
+
+.iad-imgrid__panel-title {
+  position: absolute;
   font-size: 12px;
-  white-space: pre-wrap;
-  min-height: 1.4em;
+  font-weight: 700;
+  line-height: 1.2;
+  color: #eee;
+  white-space: nowrap;
+  transform: translateY(-100%);
+}
+
+.iad-imgrid__tick {
+  position: absolute;
+  font-size: 10px;
+  line-height: 1;
+  color: #888;
+  white-space: nowrap;
+}
+
+.iad-imgrid__tick--x {
+  transform: translateX(-50%);
+}
+
+.iad-imgrid__tick--y {
+  transform: translate(-100%, -50%);
+}
+
+.iad-imgrid__tick--cbar {
+  transform: translateY(-50%);
+}
+
+.iad-imgrid__res-badge {
+  transform: translate(-100%, -100%);
 }
 
 .iad-imgrid__title {
