@@ -150,7 +150,6 @@ class NamedTupleI:
     ::
             isinstance(type(obj), NamedTupleMeta)
     """
-    from .data.nptools import array_info_str
 
     _fields: list[str]
     __iter__: Callable
@@ -158,7 +157,8 @@ class NamedTupleI:
     def __init__(self, *args, **kws): ...
 
     def __repr__(self):
-        val_str = lambda v: (NamedTupleI.array_info_str(v, stats=False)
+        from .data.nptools import array_info_str
+        val_str = lambda v: (array_info_str(v, stats=False)
                              if hasattr(v, 'shape') and hasattr(v, 'ndim') else str(v))
         fields_str = (f'{k}: {val_str(v)}' for k, v in zip(self._fields, self))
 
