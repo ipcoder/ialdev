@@ -440,6 +440,8 @@ def prepare_grid_from_parsed(
     PreparedGrid
         Layout rects, packed buffers, and byte/pixel accounting for the widget.
     """
+    # Caller-facing shapes for update_data; must precede resize.
+    source_ref = [(title, im.shape) for im, title in parsed]
     parsed = _resize_images(parsed, resize)
     grid_spec = grid_layout(len(parsed), grid, transp)
     clims = _to_clim_list(clim, parsed)
@@ -449,9 +451,9 @@ def prepare_grid_from_parsed(
         from iad.core.datatools import transpose
 
         grid_spec = grid_spec[::-1]
-        parsed, clims, cmaps = map(
+        parsed, clims, cmaps, source_ref = map(
             lambda seq: transpose(seq, int(grid_spec[0])),
-            (parsed, clims, cmaps),
+            (parsed, clims, cmaps, source_ref),
         )
 
     n_panels = len(parsed)
@@ -532,7 +534,6 @@ def prepare_grid_from_parsed(
         full_pixels += panel.source_width * panel.source_height
 
     over_budget = explicit_res and sent_pixels > max_pixels * n_panels
-    source_ref = [(title, im.shape) for im, title in parsed]
 
     return PreparedGrid(
         panels=panels,
