@@ -1,0 +1,26 @@
+{
+  "algutils": {
+    "sha": "ab58966f4a4e2d45046673488115ea1bba3597a8",
+    "version": "0.2.5"
+  },
+  "fio": {
+    "sha": "ab58966f4a4e2d45046673488115ea1bba3597a8",
+    "version": "0.2.3"
+  },
+  "imgtools": {
+    "sha": "ab58966f4a4e2d45046673488115ea1bba3597a8",
+    "version": "0.2.3"
+  },
+  "maths": {
+    "sha": "ab58966f4a4e2d45046673488115ea1bba3597a8",
+    "version": "0.2.4"
+  },
+  "dataman": {
+    "sha": "ab58966f4a4e2d45046673488115ea1bba3597a8",
+    "version": "0.2.6"
+  },
+  "vis": {
+    "sha": "ab58966f4a4e2d45046673488115ea1bba3597a8",
+    "version": "0.2.3"
+  }
+}

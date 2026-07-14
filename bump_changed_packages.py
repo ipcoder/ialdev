@@ -24,6 +24,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from record_release_state import load_release_state
+
 ROOT = Path(__file__).resolve().parent
 
 WORKSPACE_PACKAGES: list[tuple[str, str]] = [
@@ -106,6 +108,20 @@ def default_since_ref() -> str:
     if git_rev_exists("HEAD~1"):
         return "HEAD~1"
     return "HEAD"
+
+
+def resolve_since_for_folder(
+    folder: str,
+    explicit_since: str | None,
+    state: dict[str, dict[str, str]],
+) -> tuple[str, str]:
+    """Return ``(since_ref, source)`` where source explains where the ref came from."""
+    if explicit_since:
+        return explicit_since, "explicit --since"
+    entry = state.get(folder)
+    if entry and entry.get("sha") and git_rev_exists(entry["sha"]):
+        return entry["sha"], "release-state"
+    return default_since_ref(), "merge-base fallback"
 
 
 def package_changed(folder: str, since: str) -> bool:
@@ -252,7 +268,11 @@ def main() -> int:
     parser.add_argument(
         "--since",
         metavar="REF",
-        help="Git ref to compare against (default: merge-base with main, else HEAD~1)",
+        help=(
+            "Git ref to compare against, overriding per-package detection "
+            "(default: each package's recorded commit in .release-state.json, "
+            "falling back to merge-base with main / HEAD~1 for packages never published)"
+        ),
     )
     parser.add_argument(
         "--part",
@@ -284,13 +304,16 @@ def main() -> int:
         if not args.all:
             return 1
 
-    since = args.since or default_since_ref()
+    state = load_release_state()
     folders = resolve_folders(args.packages)
 
     to_bump: list[str] = []
     for folder in folders:
         if folder == META_FOLDER:
             continue
+        since, source = resolve_since_for_folder(folder, args.since, state)
+        if args.dry_run or args.all:
+            print(f"{folder}: comparing since {since} ({source})", file=sys.stderr)
         if args.all or not git_ok() or package_changed(folder, since):
             to_bump.append(folder)
 
@@ -301,7 +324,7 @@ def main() -> int:
         to_bump.append(META_FOLDER)
 
     if not to_bump:
-        print(f"No package changes under {folders!r} since {since}.")
+        print(f"No package changes detected under {folders!r}.")
         print("Use --all to bump anyway, or change code and retry.")
         return 0
 
