@@ -86,11 +86,6 @@ def detect_changed(candidates: list[str], state: dict) -> list[str]:
     return changed
 
 
-def proposed_bump(folder: str, part: str) -> tuple[str, str]:
-    old = bump.read_project_version(bump.pyproject_for_folder(folder))
-    return old, bump.bump_version(old, part)
-
-
 def run_bump(folders: list[str], part: str) -> list[str]:
     changes: list[str] = []
     for folder in folders:
@@ -128,24 +123,82 @@ def publish_package(folder: str) -> bool:
     return result.returncode == 0
 
 
-def print_plan(batch: list[str], part: str) -> None:
+def folder_for_pyproject(path: Path) -> str | None:
+    """Map a workspace pyproject.toml path to its folder (None for the root meta)."""
+    if path.parent == ROOT:
+        return None
+    return path.parent.name
+
+
+def simulate_release_plan(
+    initial: list[str],
+    part: str,
+) -> tuple[list[str], dict[str, tuple[str, str]], bool, set[str]]:
+    """Predict the full cascaded batch without touching any files.
+
+    Bumps the initial set in an in-memory version map, then repeatedly asks
+    ``sync_workspace_deps`` (with ``write=False``) which dependents' pins would
+    move, folding those in — mirroring what ``execute`` does with real writes.
+
+    Returns ``(ordered_batch, bumps, converged, unresolved)``.
+    """
+    version_map = sync.load_version_map()
+    bumps: dict[str, tuple[str, str]] = {}
+    batch_set: set[str] = set()
+
+    def apply_bump(folder: str) -> None:
+        dist = bump.DIST_BY_FOLDER[folder]
+        old = version_map[dist]
+        new = bump.bump_version(old, part)
+        version_map[dist] = new
+        bumps[folder] = (old, new)
+        batch_set.add(folder)
+
+    for folder in ordered(set(initial)):
+        apply_bump(folder)
+
+    iterations = 0
+    while True:
+        newly: set[str] = set()
+        for pyproject in sync.PYPROJECT_PATHS:
+            if not pyproject.is_file():
+                continue
+            if not sync.sync_pyproject(pyproject, version_map, None, write=False):
+                continue
+            folder = folder_for_pyproject(pyproject)
+            if folder in PUBLISH_ORDER and folder not in batch_set:
+                newly.add(folder)
+        if not newly:
+            return ordered(batch_set), bumps, True, set()
+        iterations += 1
+        if iterations > CASCADE_MAX_ITERATIONS:
+            return ordered(batch_set), bumps, False, newly
+        for folder in ordered(newly):
+            apply_bump(folder)
+
+
+def print_plan(initial: list[str], part: str) -> None:
+    batch, bumps, converged, unresolved = simulate_release_plan(initial, part)
+    initial_set = set(initial)
     print("Release plan (dry run — nothing changed):\n")
     print(f"  Bump part: {part}")
-    print("  Initial changed packages (vs last recorded publish):")
     if not batch:
-        print("    (none — nothing to release)")
-    else:
-        for folder in ordered(batch):
-            old, new = proposed_bump(folder, part)
-            print(f"    {dist_name(folder)} ({folder}): {old} -> {new}")
-        print("\n  Publish order:")
-        print("    " + " -> ".join(dist_name(f) for f in ordered(batch)))
-    print(
-        "\n  Note: after syncing dependency pins, dependents whose pyproject.toml"
-        "\n  changes only due to a pin bump are re-scanned and folded into the batch"
-        f"\n  (cascading, capped at {CASCADE_MAX_ITERATIONS} iterations), so the final"
-        "\n  published set may be a superset of the list above."
-    )
+        print("  No changed packages to release.")
+        print("\nRe-run with --yes to execute.")
+        return
+    print("  Packages to release (source changes + cascaded pin bumps):")
+    for folder in batch:
+        old, new = bumps[folder]
+        tag = "" if folder in initial_set else "   [cascaded via pin bump]"
+        print(f"    {dist_name(folder)} ({folder}): {old} -> {new}{tag}")
+    print("\n  Publish order:")
+    print("    " + " -> ".join(dist_name(f) for f in batch))
+    if not converged:
+        print(
+            f"\n  WARNING: cascade did not converge after {CASCADE_MAX_ITERATIONS}"
+            f" iterations (possible dependency cycle); unresolved: "
+            f"{', '.join(sorted(unresolved))}. Executing would abort."
+        )
     print("\nRe-run with --yes to execute.")
 
 

@@ -47,7 +47,7 @@ What it does, in order:
 1. Aborts if the working tree isn't clean.
 2. Determines the changed-package set from `.release-state.json` (see below), not git branch history.
 3. Dry-run by default; `--yes` is required to actually change anything.
-4. Bumps versions, syncs dependency pins, then **re-scans**: if `sync_workspace_deps.py` touched a dependent's `pyproject.toml` (a pin-only change), that dependent is folded into the same batch and bumped too. Repeats until no new packages appear, capped at 3 iterations (a cap hit indicates an unexpected dependency cycle and aborts the run).
+4. Bumps versions, syncs dependency pins, then **re-scans**: if `sync_workspace_deps.py` touched a dependent's `pyproject.toml` (a pin-only change), that dependent is folded into the same batch and bumped too. Pin sync is compatibility-aware (see step 4 below), so a bump that stays within a dependent's existing `>=` floor does **not** trigger a cascade. Repeats until no new packages appear, capped at 3 iterations (a cap hit indicates an unexpected dependency cycle and aborts the run).
 5. Commits the bump + pin-sync changes as one commit.
 6. Builds and publishes only the final batch, in dependency order (not all workspace packages).
 7. Records each successful publish into `.release-state.json` (via `record_release_state.py`, also wired into `publish_pypi` directly) and commits that separately.
@@ -136,6 +136,8 @@ CI can enforce up-to-date pins:
 ```
 
 The script updates `[project].dependencies` and `[project.optional-dependencies]` in the root and all listed sub-projects. It does **not** bump versions for you.
+
+**Compatibility-aware pins.** A pin is only rewritten when the existing specifier no longer admits the new version. A backward-compatible release stays within an open `>=` floor (e.g. bumping `ialdev-core` to `0.2.7` leaves `ialdev-core>=0.2.5` untouched), so a core bump does **not** cascade a pin-only change into every dependent. A pin is refreshed only when it would otherwise exclude the release — an above-the-release floor (`>=0.2.8`), an upper cap the new version violates (`>=0.2.5,<0.3` vs `0.3.0`), or a bare requirement with no floor. This keeps `publish-changed`'s re-scan from folding in dependents whose code did not change. (If `packaging` is unavailable, the script falls back to always refreshing the floor.)
 
 ### 5. Commit
 
