@@ -14,7 +14,7 @@ class Backend(str, Enum):
     MPL = 'mpl'
     PLY = 'ply'
     WGT = 'wgt'
-
+    IMV = 'imv'
 
 def iad_reloader():
     """Dynamically bootstraps the iad namespace package for marimo hot-reloading."""
@@ -292,6 +292,7 @@ def mogrid(*args, backend: Backend | str | None = None, **kws):
     :param backend: 'mpl' - matplotlib via :func:`iad.vis.insight.imgrid`
                     'ply' - Plotly via :func:`iad.vis.plgrid.imgrid`
                     'wgt' - anywidget via :func:`iad.vis.imview.imgrid`
+                    'imv' - imv via :func:`iad.vis.imview.imgrid`
                     None - use ``mo_options.mogrid.backend`` (default)
     """
     backend = Backend(backend) if backend is not None else mopt.mogrid.backend
@@ -302,5 +303,9 @@ def mogrid(*args, backend: Backend | str | None = None, **kws):
     if backend == Backend.WGT:
         from iad.vis.imview import imgrid
         return imgrid(*args, **kws)
-    from iad.vis.insight import imgrid
-    return mo.mpl.interactive(imgrid(*args, **kws, out='fig'))
+    if backend == Backend.IMV:
+        from iad.vis.imview import imgrid
+        return imgrid(*args, **kws)
+    else:
+        from iad.vis.insight import imgrid
+        return mo.mpl.interactive(imgrid(*args, **kws, out='fig'))
