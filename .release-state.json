@@ -1,26 +1,26 @@
 {
   "algutils": {
-    "sha": "ab58966f4a4e2d45046673488115ea1bba3597a8",
-    "version": "0.2.5"
-  },
-  "fio": {
-    "sha": "ab58966f4a4e2d45046673488115ea1bba3597a8",
-    "version": "0.2.3"
-  },
-  "imgtools": {
-    "sha": "ab58966f4a4e2d45046673488115ea1bba3597a8",
-    "version": "0.2.3"
-  },
-  "maths": {
-    "sha": "ab58966f4a4e2d45046673488115ea1bba3597a8",
-    "version": "0.2.4"
-  },
-  "dataman": {
-    "sha": "ab58966f4a4e2d45046673488115ea1bba3597a8",
+    "sha": "734f4d08606f207ae3b50aa14162053802c57980",
     "version": "0.2.6"
   },
+  "dataman": {
+    "sha": "734f4d08606f207ae3b50aa14162053802c57980",
+    "version": "0.2.7"
+  },
+  "fio": {
+    "sha": "734f4d08606f207ae3b50aa14162053802c57980",
+    "version": "0.2.4"
+  },
+  "imgtools": {
+    "sha": "734f4d08606f207ae3b50aa14162053802c57980",
+    "version": "0.2.4"
+  },
+  "maths": {
+    "sha": "734f4d08606f207ae3b50aa14162053802c57980",
+    "version": "0.2.5"
+  },
   "vis": {
-    "sha": "ab58966f4a4e2d45046673488115ea1bba3597a8",
-    "version": "0.2.3"
+    "sha": "734f4d08606f207ae3b50aa14162053802c57980",
+    "version": "0.2.4"
   }
 }
