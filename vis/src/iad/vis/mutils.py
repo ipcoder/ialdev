@@ -34,7 +34,7 @@ def iad_reloader():
 
 class MogridOptions:
     def __init__(self) -> None:
-        self._backend: Backend = Backend.PLY
+        self._backend: Backend = Backend.IMV
 
     @property
     def backend(self) -> Backend:

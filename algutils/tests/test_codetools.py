@@ -1,5 +1,8 @@
 import pytest
 
+from types import SimpleNamespace
+
+from iad.core.codetools import call_args_expr
 from iad.core.datatools import zip_dict
 from iad.core.wrap import name_func_outputs, namedtuple
 
@@ -87,6 +90,90 @@ def test_name_outputs():
     out = f(2)
     assert out == tuple(range(2))
     assert f(1) == 0
+
+
+def test_call_args_expr_direct():
+    """Test Target: baseline recovery of positional arg source text via call_args_expr.
+    Failure Triggers: AST match broken for plain Name callees; source segment extraction regresses."""
+    captured = []
+
+    def probe(a, b):
+        captured.append(call_args_expr())
+
+    x, y = 1, 2
+    probe(x, y + 1)
+    assert captured == [['x', 'y + 1']]
+
+
+def test_call_args_expr_aliased():
+    """Test Target: call_args_expr finds the call when the callee is an import/local alias.
+    Failure Triggers: matching requires literal def name in source; alias resolution dropped."""
+    captured = []
+
+    def probe(a, b):
+        captured.append(call_args_expr())
+
+    alias = probe
+    left, right = 3, 4
+    alias(left, right)
+    assert captured == [['left', 'right']]
+
+
+def test_call_args_expr_attribute():
+    """Test Target: call_args_expr finds calls made through module/object attributes.
+    Failure Triggers: Attribute callees ignored; getattr chain lookup fails for SimpleNamespace."""
+    captured = []
+
+    def probe(a, b):
+        captured.append(call_args_expr())
+
+    ns = SimpleNamespace(probe=probe)
+    u, v = 5, 6
+    ns.probe(u, v)
+    assert captured == [['u', 'v']]
+
+
+def test_call_args_expr_nested_aliased():
+    """Test Target: level=2 + name= recovery through an aliased outer function (imgrid chain).
+    Failure Triggers: nest_level arithmetic wrong; alias breaks name= cross-check or AST match."""
+    captured = []
+
+    def outer(a, b):
+        def inner():
+            captured.append(call_args_expr(2, name='outer'))
+        inner()
+
+    aliased = outer
+    p, q = 7, 8
+    aliased(p, q)
+    assert captured == [['p', 'q']]
+
+
+def test_call_args_expr_assignment_form():
+    """Test Target: arg source text when the call is an RHS of an assignment (not line-leading).
+    Failure Triggers: get_source_segment applied to call substring with absolute col_offsets."""
+    captured = []
+
+    def probe(a, b):
+        captured.append(call_args_expr())
+
+    alias = probe
+    left, right = 1, 2
+    result = alias(left, right)
+    assert captured == [['left', 'right']]
+    assert result is None
+
+
+def test_call_args_expr_unrecoverable_raises():
+    """Test Target: NameError still raised when the callee expression cannot be resolved.
+    Failure Triggers: getattr-dispatched calls silently accepted; guard in assign_args_names has nothing to catch."""
+    def probe(a):
+        return call_args_expr()
+
+    ns = SimpleNamespace(probe=probe)
+    with pytest.raises(NameError, match='not found on level'):
+        # Call AST is Call(func=Call(getattr(...))) — no Name/Attribute path to resolve.
+        getattr(ns, 'probe')(9)
 
 
 if __name__ == '__main__':

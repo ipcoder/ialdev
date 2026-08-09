@@ -137,3 +137,28 @@ def test_marimo_backend_smoke():
     result = imgrid(rand(5, 5), backend='marimo', inspect=False)
     assert result.ui is not None
     assert hasattr(marimo.ui, 'plotly')
+
+
+def test_imgrid_aliased_titles_from_var_names():
+    """Test Target: imgrid under an import/local alias titles panels from caller variable names.
+    Failure Triggers: call_args_expr alias match regresses; assign_args_names stops using source names."""
+    from iad.vis.plgrid import imgrid as plgrid
+
+    left = rand(4, 4)
+    right = rand(4, 4)
+    images = plgrid(left, right, cmap='gray', backend='figure', out='images')
+    assert [title for _, title in images] == ['left', 'right']
+
+
+def test_imgrid_dict_titles_without_source():
+    """Test Target: dict-keyed titles still work when call-site source is unavailable (exec).
+    Failure Triggers: assign_args_names lets call_args_expr NameError abort the plot; dict keys ignored."""
+    from iad.vis.plgrid import imgrid
+
+    panels = {'alpha': rand(3, 3), 'beta': rand(3, 3)}
+    ns = {'imgrid': imgrid, 'panels': panels, 'result': None}
+    exec(
+        "result = imgrid(panels, cmap='gray', backend='figure', out='images')",
+        ns,
+    )
+    assert [title for _, title in ns['result']] == ['alpha', 'beta']

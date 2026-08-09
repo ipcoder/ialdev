@@ -167,6 +167,8 @@ def _downsample_image(image: np.ndarray, max_pixels: int) -> np.ndarray:
     if h * w <= max_pixels:
         return image
     factor = int(np.ceil(np.sqrt(h * w / max_pixels)))
+    h, w = h // factor * factor, w // factor * factor  # block-mean needs exact tiling
+    image = image[:h, :w]
     if image.ndim == 2:
         view = image.reshape(h // factor, factor, w // factor, factor)
         return view.mean(axis=(1, 3))

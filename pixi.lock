@@ -911,8 +911,8 @@ packages:
   timestamp: 1771539597968
 - pypi: ./algutils
   name: ialdev-core
-  version: 0.2.5
-  sha256: 140856bc950784ba91530c7802cf65f5c8450d3990ed540e56259f0a9c4fda4b
+  version: 0.2.6
+  sha256: a6ab5c23d52953623075cfb2ab14e14c4dd56a072cfdb410560a73fb5589a368
   requires_dist:
   - pydantic>=2.0
   - pandas>=2.1.0
@@ -940,13 +940,13 @@ packages:
   requires_python: '>=3.10'
 - pypi: ./dataman
   name: ialdev-dataman
-  version: 0.2.6
-  sha256: 05ef11da3fe261ce925e2f0c67dd7270a68314944e7a79cf038c3374b63c1ece
+  version: 0.2.7
+  sha256: d5ce8eea5dcd2dbbd622145321fd87dbd2f0fb18696f8d8bef3fc57bc5eb610b
   requires_dist:
-  - ialdev-core>=0.2.5
-  - ialdev-io>=0.2.3
-  - ialdev-img>=0.2.3
-  - ialdev-maths>=0.2.4
+  - ialdev-core>=0.2.6
+  - ialdev-io>=0.2.4
+  - ialdev-img>=0.2.4
+  - ialdev-maths>=0.2.5
   - pandas>=2.0.0
   - numpy>=1.26.4,<2
   - pydantic>=2.0
@@ -959,21 +959,21 @@ packages:
 - pypi: ./engines
   name: ialdev-engines
   version: 0.2.2
-  sha256: ad3a6bdf3acbfdf313499329e2e7f98cdb97293fa5802a907e772b127f0f6545
+  sha256: 78d94065fc4b05f5db7bca3c87b91cdf926f71ec7ef142f8b80994e4010a63c1
   requires_dist:
-  - ialdev-core>=0.2.5
-  - ialdev-dataman>=0.2.6
+  - ialdev-core>=0.2.6
+  - ialdev-dataman>=0.2.7
   - click>=8.0
   - pytest>=7.0.0 ; extra == 'dev'
   requires_python: '>=3.10'
 - pypi: ./imgtools
   name: ialdev-img
-  version: 0.2.3
-  sha256: 81e5e22642113583fb967dc328e89116f98a209298c656208f1a1e9c97885338
+  version: 0.2.4
+  sha256: 46d69999853e8dd7235f7cfb3dcb86f31b3d30976f4782a9361e974c4f2d4b3c
   requires_dist:
-  - ialdev-core>=0.2.5
-  - ialdev-io>=0.2.3
-  - ialdev-maths>=0.2.4
+  - ialdev-core>=0.2.6
+  - ialdev-io>=0.2.4
+  - ialdev-maths>=0.2.5
   - numpy>=1.26.4,<2
   - xxhash>=3.0.0
   - toolz>=0.11.0
@@ -981,10 +981,10 @@ packages:
   requires_python: '>=3.10'
 - pypi: ./fio
   name: ialdev-io
-  version: 0.2.3
-  sha256: 30fe995a7d64e96028a1dc1c034942954c6755eff4d983fa607d4dcd679dc635
+  version: 0.2.4
+  sha256: 2cf4f811fbc9c86f73b953d7df0be16e0a01acf2b7a530982a149e835ea48c7e
   requires_dist:
-  - ialdev-core>=0.2.5
+  - ialdev-core>=0.2.6
   - numpy>=1.26.4,<2
   - pillow>=8.0.0
   - scikit-image>=0.19.0
@@ -995,24 +995,24 @@ packages:
   requires_python: '>=3.10'
 - pypi: ./maths
   name: ialdev-maths
-  version: 0.2.4
-  sha256: 0ba2d95b8adda9c77567c87d9fa5994d9501355cc149a036f28b5f38517d4960
+  version: 0.2.5
+  sha256: 7d0c32f4a6910ebff2a0dcf291a4b22cc51c3212dc5da1c0eaa65cf16f24972d
   requires_dist:
-  - ialdev-core>=0.2.5
+  - ialdev-core>=0.2.6
   - numpy>=1.26.4,<2
   - pandas>=1.3.0
   - numba>=0.55.0
   - scikit-learn>=1.0.0
   - pytest>=7.0.0 ; extra == 'dev'
-  - ialdev-vis>=0.2.3 ; extra == 'dev'
+  - ialdev-vis>=0.2.4 ; extra == 'dev'
   requires_python: '>=3.10'
 - pypi: ./vis
   name: ialdev-vis
-  version: 0.2.3
-  sha256: 19b9322f9d3bad105dbd32b1796d1f3b34107f6a0313cdfb5d367a27b17eab63
+  version: 0.2.4
+  sha256: 95758f76cdd414126ea39e9f30f5e563849efae2a548660e104d18e076c71406
   requires_dist:
-  - ialdev-core>=0.2.5
-  - ialdev-io>=0.2.3
+  - ialdev-core>=0.2.6
+  - ialdev-io>=0.2.4
   - matplotlib>=3.5.0
   - numpy>=1.26.4,<2
   - regex>=2021.0.0
@@ -1031,19 +1031,19 @@ packages:
   - ipyvolume>=0.6.0 ; extra == '3d'
   - pytest>=7.0.0 ; extra == 'dev'
   - pytest-cov>=3.0.0 ; extra == 'dev'
-  - ialdev-vis[graphviz,qt,jupyter,notebook,marimo,3d,dev]>=0.2.3 ; extra == 'all'
+  - ialdev-vis[graphviz,qt,jupyter,notebook,marimo,3d,dev]>=0.2.4 ; extra == 'all'
   requires_python: '>=3.10'
 - pypi: ./
   name: ialgdev
-  version: 0.2.5
-  sha256: e55012506500cff59ea39546f6270300887ed96489a4d652999cbcfaf0c68f3f
+  version: 0.2.6
+  sha256: 28380a8f5fb8e8987526cefd92acd756c26e23bfb89007cec16e5bb43f20b4f6
   requires_dist:
-  - ialdev-core>=0.2.5
-  - ialdev-maths>=0.2.4
-  - ialdev-io>=0.2.3
-  - ialdev-img>=0.2.3
-  - ialdev-dataman>=0.2.6
-  - ialdev-vis>=0.2.3
+  - ialdev-core>=0.2.6
+  - ialdev-maths>=0.2.5
+  - ialdev-io>=0.2.4
+  - ialdev-img>=0.2.4
+  - ialdev-dataman>=0.2.7
+  - ialdev-vis>=0.2.4
   - ialdev-engines>=0.2.2
   - pandas>=1.3.0
   - numpy>=1.26.4,<2
