@@ -296,7 +296,12 @@ def assign_args_names(args, *, names, func_name, nest_level, enum_form):
 
         return False
 
-    call_var_names = cdt.call_args_expr(nest_level + 1, name=func_name)
+    needs_src_names = any(not isinstance(inp, tuple) and not hasattr(inp, 'items')
+                          for inp in args)
+    try:
+        call_var_names = cdt.call_args_expr(nest_level + 1, name=func_name) if needs_src_names else []
+    except (NameError, SyntaxError, OSError, TypeError, IndexError):
+        call_var_names = []  # titles fall back to enum_form
     parse_id = 0
     arg_id = 0
 

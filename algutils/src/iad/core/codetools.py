@@ -2,6 +2,9 @@
 from __future__ import annotations
 
 import ast
+import builtins
+import functools
+import inspect
 import re
 from typing import Union, Collection
 
@@ -24,6 +27,62 @@ def importer(name, root_package=False, relative_globals=None, level=0):
                       globals=relative_globals,
                       fromlist=[] if root_package else [None],
                       level=level)
+
+
+def _callee_path(node):
+    """Return dotted name parts for ``Name`` / ``Attribute`` callees, else None."""
+    parts = []
+    while isinstance(node, ast.Attribute):
+        parts.append(node.attr)
+        node = node.value
+    if not isinstance(node, ast.Name):
+        return None
+    parts.append(node.id)
+    parts.reverse()
+    return parts
+
+
+def _unwrap_callable(obj):
+    """Peel wrappers until a bare function/method with ``__code__`` remains."""
+    seen = set()
+    while True:
+        oid = id(obj)
+        if oid in seen:
+            return obj
+        seen.add(oid)
+        if isinstance(obj, functools.partial):
+            obj = obj.func
+            continue
+        unwrapped = inspect.unwrap(obj)
+        if unwrapped is not obj:
+            obj = unwrapped
+            continue
+        if hasattr(obj, '__func__'):
+            obj = obj.__func__
+            continue
+        return obj
+
+
+def _resolves_to(parts, frame, code):
+    """True if dotted ``parts`` in ``frame`` resolve to an object with ``code``."""
+    if not parts:
+        return False
+    root = parts[0]
+    if root in frame.f_locals:
+        obj = frame.f_locals[root]
+    elif root in frame.f_globals:
+        obj = frame.f_globals[root]
+    elif hasattr(builtins, root):
+        obj = getattr(builtins, root)
+    else:
+        return False
+    try:
+        for attr in parts[1:]:
+            obj = getattr(obj, attr)
+        obj = _unwrap_callable(obj)
+        return getattr(obj, '__code__', None) is code
+    except Exception:
+        return False
 
 
 def call_args_expr(level=None, *, name: str = None, extend=5):
@@ -61,7 +120,6 @@ def call_args_expr(level=None, *, name: str = None, extend=5):
                 100 line before raising a NameError
     :return:
     """
-    import inspect
 
     def code_gen(frame):
         """
@@ -88,6 +146,7 @@ def call_args_expr(level=None, *, name: str = None, extend=5):
     if level:
         frame_info = stack[level + 1]
         found_name = stack[level].function
+        target_code = stack[level].frame.f_code
         if name != found_name:
             if name is not None:
                 raise NameError(f"Found function {found_name} not {name}")
@@ -95,6 +154,7 @@ def call_args_expr(level=None, *, name: str = None, extend=5):
     else:
         for level, frame_info in enumerate(stack[1:], 1):
             if frame_info.function == name:
+                target_code = stack[level].frame.f_code
                 frame_info = stack[level + 1]
                 break
         else:
@@ -109,14 +169,32 @@ def call_args_expr(level=None, *, name: str = None, extend=5):
     else:
         raise SyntaxError(f"Failed to parse call {frame_info.code_context}")
 
-    for func in ast.walk(tree):
-        if isinstance(func, ast.Call) and getattr(func.func, 'id', '') == name:
+    calls = [n for n in ast.walk(tree) if isinstance(n, ast.Call)]
+    callee_labels = []
+    func = None
+    for call in calls:
+        parts = _callee_path(call.func)
+        if parts is None:
+            callee_labels.append('<expr>')
+            continue
+        callee_labels.append('.'.join(parts))
+        if _resolves_to(parts, frame_info.frame, target_code):
+            func = call
             break
     else:
-        raise NameError(f"Function {name} not found on level {level}")
+        for call in calls:
+            parts = _callee_path(call.func)
+            if parts and parts[-1] == name:
+                func = call
+                break
+        else:
+            found = ', '.join(callee_labels) or '<none>'
+            raise NameError(
+                f"Function {name} not found on level {level}; "
+                f"source={source!r}; callees=[{found}]"
+            )
 
-    func_src = ast.get_source_segment(source, func)
-    return [re.sub(r'\n\s*', '', ast.get_source_segment(func_src, arg))
+    return [re.sub(r'\n\s*', '', ast.get_source_segment(source, arg))
             for arg in func.args]
 
 
