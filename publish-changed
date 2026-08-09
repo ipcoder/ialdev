@@ -24,6 +24,7 @@ Preconditions (execute mode):
 from __future__ import annotations
 
 import argparse
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -45,6 +46,21 @@ CASCADE_MAX_ITERATIONS = 3
 def fail(message: str) -> NoReturn:
     print(f"publish-changed: {message}", file=sys.stderr)
     raise SystemExit(1)
+
+
+def check_build_tooling() -> None:
+    """Abort before any mutation if ``flit`` is missing.
+
+    ``flit`` only exists inside the pixi environment. Discovering that at the
+    build step would leave an already-committed version bump behind, which
+    ratchets versions on every retry.
+    """
+    if shutil.which("flit"):
+        return
+    fail(
+        "`flit` not found on PATH. Run via pixi so the build tooling is available:\n"
+        "  pixi run publish-changed --yes"
+    )
 
 
 def working_tree_clean() -> bool:
@@ -203,6 +219,7 @@ def print_plan(initial: list[str], part: str) -> None:
 
 
 def execute(batch: list[str], part: str) -> int:
+    check_build_tooling()
     if not working_tree_clean():
         fail("working tree is not clean. Commit or stash your changes first.")
 
