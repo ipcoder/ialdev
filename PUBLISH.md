@@ -28,6 +28,31 @@ Development uses **Pixi** (`pixi.toml`) for a reproducible environment; **packag
 
 Pixi does **not** duplicate every pip dependency. It installs editable workspace packages; each package’s `[project.dependencies]` is resolved by the PyPI solver. After you bump a sub-package version, **dependents must pin the new release** — use `sync_workspace_deps.py` (below).
 
+## Recommended: one-shot release with `publish-changed`
+
+For a normal release (a handful of packages changed, want to bump + build + publish them), use the orchestrator script instead of running the steps below by hand:
+
+```bash
+# Requires a clean working tree (commit/stash first).
+./publish-changed              # dry-run: prints changed packages, proposed versions, publish order
+./publish-changed --yes        # bump + sync-deps + build + publish, in dependency order
+./publish-changed --part minor # non-default bump part
+./publish-changed vis dataman  # restrict the initial changed-set (still cascades into pin-bumped dependents)
+```
+
+`publish-changed` is a thin wrapper around `bump_changed_packages.py`, `sync_workspace_deps.py`, `flit build`, and `publish_pypi` — it doesn't replace them, and you can still run each manually (steps 1-6 below) for finer control, e.g. publishing a hand-picked subset or recovering from a partial failure.
+
+What it does, in order:
+
+1. Aborts if the working tree isn't clean.
+2. Determines the changed-package set from `.release-state.json` (see below), not git branch history.
+3. Dry-run by default; `--yes` is required to actually change anything.
+4. Bumps versions, syncs dependency pins, then **re-scans**: if `sync_workspace_deps.py` touched a dependent's `pyproject.toml` (a pin-only change), that dependent is folded into the same batch and bumped too. Pin sync is compatibility-aware (see step 4 below), so a bump that stays within a dependent's existing `>=` floor does **not** trigger a cascade. Repeats until no new packages appear, capped at 3 iterations (a cap hit indicates an unexpected dependency cycle and aborts the run).
+5. Commits the bump + pin-sync changes as one commit.
+6. Builds and publishes only the final batch, in dependency order (not all workspace packages).
+7. Records each successful publish into `.release-state.json` (via `record_release_state.py`, also wired into `publish_pypi` directly) and commits that separately.
+8. Stops on the first build/publish failure, leaving already-published packages' state committed so a re-run doesn't redo them.
+
 ## Typical development iteration
 
 ### 1. Set up the environment
@@ -58,7 +83,7 @@ cd algutils && pixi run flit build --no-use-vcs
 
 ### 3. Bump versions
 
-Detect git changes per package and bump `version` in `pyproject.toml` (and `__version__` in `src/**/__init__.py` when present):
+Detect changes per package and bump `version` in `pyproject.toml` (and `__version__` in `src/**/__init__.py` when present):
 
 ```bash
 ./bump_changed_packages.py --dry-run
@@ -76,7 +101,13 @@ pixi run bump-changed-packages
 ./bump_changed_packages.py --sync-deps
 ```
 
-By default, compares each package directory to the merge-base with `origin/main` / `main`, or `HEAD~1`. Override with `--since REF`. Use `--part minor` or `--part major` when needed. The root `ialgdev` meta-package is patch-bumped automatically when any sub-package is bumped (`--meta auto`).
+**Change detection is per-package against [`.release-state.json`](.release-state.json)**, not a git branch/merge-base guess: each entry records the git commit and version at the time that package was last published. A package is "changed" if its source differs from that recorded commit. This is what makes detection reliable regardless of your current branch — merging a fix to `master` no longer makes it invisible to the bump script (the old merge-base heuristic could silently collapse to `HEAD`, hiding already-committed-but-unpublished changes).
+
+`publish_pypi` (and `record_release_state.py` directly) update `.release-state.json` after every successful publish, so the recorded commit always reflects what's actually live on PyPI.
+
+Packages with no entry yet in `.release-state.json` (never published, e.g. `engines`, root `ialgdev`) fall back to the previous behavior: compare against the merge-base with `origin/main` / `main` / `origin/master` / `master`, or `HEAD~1`. You can still force this fallback for any package with `--since REF`.
+
+Use `--part minor` or `--part major` when needed. The root `ialgdev` meta-package is patch-bumped automatically when any sub-package is bumped (`--meta auto`).
 
 You can still edit versions by hand; use [semantic versioning](https://semver.org/) in practice.
 
@@ -106,6 +137,8 @@ CI can enforce up-to-date pins:
 
 The script updates `[project].dependencies` and `[project.optional-dependencies]` in the root and all listed sub-projects. It does **not** bump versions for you.
 
+**Compatibility-aware pins.** A pin is only rewritten when the existing specifier no longer admits the new version. A backward-compatible release stays within an open `>=` floor (e.g. bumping `ialdev-core` to `0.2.7` leaves `ialdev-core>=0.2.5` untouched), so a core bump does **not** cascade a pin-only change into every dependent. A pin is refreshed only when it would otherwise exclude the release — an above-the-release floor (`>=0.2.8`), an upper cap the new version violates (`>=0.2.5,<0.3` vs `0.3.0`), or a bare requirement with no floor. This keeps `publish-changed`'s re-scan from folding in dependents whose code did not change. (If `packaging` is unavailable, the script falls back to always refreshing the floor.)
+
 ### 5. Commit
 
 Commit version bumps, synced pins, and `pixi.lock` if the environment changed.
@@ -124,6 +157,8 @@ pixi run publish-pypi algutils
 `publish_pypi` runs `flit publish` in each package directory that uses `flit_core.buildapi`. It skips packages not in its allowlist (e.g. `annotations`, `engines` today — publish those manually with `cd annotations && flit publish` if needed).
 
 Publish **dependencies before dependents** when multiple packages changed (e.g. `ialdev-core` before `ialdev-dataman`).
+
+After each successful publish, `publish_pypi` records the current commit and version into `.release-state.json` via `record_release_state.py`. **Commit that file** alongside your release commit (step 5) — it's what makes the next `bump_changed_packages.py` run accurate. If you publish manually without `publish_pypi` (e.g. the meta-package via `twine`), update `.release-state.json` yourself: `./record_release_state.py <folder> <version>`.
 
 ### Troubleshooting
 
@@ -144,12 +179,16 @@ twine upload dist/*
 
 ## Checklist (release)
 
+Using `./publish-changed --yes` covers the first six items below in one command; the list is still useful if you're doing a manual or partial release.
+
 - [ ] Code reviewed and tests pass (`pixi run test-all` or targeted tasks)
+- [ ] Working tree is clean (`publish-changed` requires this; manual flow: commit or stash first)
 - [ ] `version` bumped (`bump_changed_packages.py` or manual) in each changed `<pkg>/pyproject.toml`
 - [ ] Root `pyproject.toml` bumped if releasing `ialgdev`
 - [ ] `./sync_workspace_deps.py` run (no pending changes with `--check`)
 - [ ] Wheels build: `pixi run build-ialdev` or per-package `flit build --no-use-vcs`
 - [ ] Packages published in dependency order
+- [ ] `.release-state.json` updated (automatic via `publish_pypi`) and committed
 - [ ] Tag/release notes updated (if your process uses git tags)
 
 ## Optional dependencies
@@ -190,8 +229,11 @@ Consider [yanking](https://pypi.org/help/#yanked) `0.2.2` on PyPI so resolvers c
 
 | Path | Purpose |
 |------|---------|
-| `bump_changed_packages.py` | Patch/minor/major bump from git changes per package |
+| `publish-changed` | One-shot orchestrator: detect changed packages, bump, sync pins, build, publish (dry-run by default) |
+| `bump_changed_packages.py` | Patch/minor/major bump for packages changed since their last recorded PyPI publish (`.release-state.json`), falling back to git history for never-published packages |
 | `sync_workspace_deps.py` | Propagate bumped `ialdev-*` versions into dependent `pyproject.toml` files |
-| `publish_pypi` | Batch `flit publish` for main sub-packages |
-| `pixi.toml` | Dev env and tasks (`bump-changed-packages`, `sync-workspace-deps`, `build-ialdev`, `test-*`, `publish-pypi`) |
+| `publish_pypi` | Batch `flit publish` for main sub-packages; records each publish into `.release-state.json` |
+| `record_release_state.py` | Reads/writes `.release-state.json`; used by `publish_pypi` and `publish-changed`, or manually for bootstrapping/out-of-band publishes |
+| `.release-state.json` | Tracked state: last published commit + version per package; source of truth for change detection |
+| `pixi.toml` | Dev env and tasks (`bump-changed-packages`, `sync-workspace-deps`, `build-ialdev`, `publish-changed`, `test-*`, `publish-pypi`) |
 | `README.md` | User-facing install and package overview |

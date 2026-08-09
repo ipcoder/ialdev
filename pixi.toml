@@ -41,3 +41,5 @@ test-integration = "MPLBACKEND=Agg python -m pytest -c pytest.ini dataman/tests 
 bump-changed-packages = "./bump_changed_packages.py"
 sync-workspace-deps = "./sync_workspace_deps.py"
 publish-pypi = "./publish_pypi"
+record-release-state = "./record_release_state.py"
+publish-changed = "./publish-changed"

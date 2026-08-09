@@ -18,6 +18,11 @@ import re
 import sys
 from pathlib import Path
 
+try:
+    from packaging.specifiers import SpecifierSet
+except ImportError:  # pragma: no cover - packaging is normally available
+    SpecifierSet = None
+
 ROOT = Path(__file__).resolve().parent
 
 WORKSPACE_PACKAGES: list[tuple[str, str]] = [
@@ -108,15 +113,34 @@ def format_requirement(name: str, extras: str, version: str) -> str:
     return f"{name}{extras}>={version}"
 
 
+def spec_admits(spec: str, version: str) -> bool:
+    """True if the existing version specifier already allows *version*.
+
+    A backward-compatible release (patch/minor) stays within an open ``>=`` floor,
+    so the dependent's pin need not change — this is what prevents a bump of a
+    widely-depended package (e.g. ialdev-core) from cascading into every dependent.
+    If packaging is unavailable we return False, falling back to always refreshing
+    the floor (the previous behavior).
+    """
+    if SpecifierSet is None or not spec.strip():
+        return False
+    try:
+        return SpecifierSet(spec).contains(version, prereleases=True)
+    except Exception:
+        return False
+
+
 def maybe_update_requirement(
     body: str,
     versions: dict[str, str],
     only_dists: set[str] | None,
 ) -> tuple[str, bool]:
-    name, extras, _spec = parse_requirement_body(body)
+    name, extras, spec = parse_requirement_body(body)
     if name not in versions:
         return body, False
     if only_dists is not None and name not in only_dists:
+        return body, False
+    if spec_admits(spec, versions[name]):
         return body, False
     new_body = format_requirement(name, extras, versions[name])
     return new_body, new_body != body

@@ -1,0 +1,329 @@
+#!/usr/bin/env python3
+"""
+One-shot release orchestrator for the ialdev workspace.
+
+Detects which packages changed since their last recorded PyPI publish
+(``.release-state.json``), bumps their versions, syncs dependency pins,
+builds, and publishes them — in dependency order, in a single command.
+
+It is a thin wrapper: version bumping, pin syncing, and change detection reuse
+``bump_changed_packages.py`` / ``sync_workspace_deps.py`` helpers directly;
+building and publishing shell out to ``flit`` / ``publish_pypi``.
+
+Usage:
+  ./publish-changed                 # dry-run: print the release plan, change nothing
+  ./publish-changed --yes           # execute: bump + sync + build + publish
+  ./publish-changed --part minor    # non-default bump part
+  ./publish-changed vis dataman     # restrict the initial changed-set (still cascades)
+
+Preconditions (execute mode):
+  - Must be a git repository.
+  - Working tree must be clean (commit or stash first). This is what makes it
+    safe to auto-commit the script's own bump / pin-sync / state changes.
+"""
+from __future__ import annotations
+
+import argparse
+import subprocess
+import sys
+from pathlib import Path
+from typing import NoReturn
+
+import bump_changed_packages as bump
+import sync_workspace_deps as sync
+from record_release_state import load_release_state
+
+ROOT = Path(__file__).resolve().parent
+
+# Packages publish_pypi actually uploads (its allowlist), in dependency order.
+PUBLISHABLE: list[str] = ["algutils", "fio", "imgtools", "maths", "dataman", "vis"]
+PUBLISH_ORDER = {folder: idx for idx, folder in enumerate(PUBLISHABLE)}
+
+CASCADE_MAX_ITERATIONS = 3
+
+
+def fail(message: str) -> NoReturn:
+    print(f"publish-changed: {message}", file=sys.stderr)
+    raise SystemExit(1)
+
+
+def working_tree_clean() -> bool:
+    result = subprocess.run(
+        ["git", "status", "--porcelain"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return not result.stdout.strip()
+
+
+def dist_name(folder: str) -> str:
+    return bump.DIST_BY_FOLDER[folder]
+
+
+def ordered(folders: set[str]) -> list[str]:
+    return sorted(folders, key=lambda f: PUBLISH_ORDER[f])
+
+
+def resolve_initial_folders(names: list[str]) -> list[str]:
+    if not names:
+        return list(PUBLISHABLE)
+    selected = bump.resolve_folders(names)
+    unpublishable = [f for f in selected if f not in PUBLISH_ORDER]
+    if unpublishable:
+        dists = ", ".join(sorted(unpublishable))
+        fail(f"not publishable via publish_pypi: {dists}")
+    return [f for f in selected if f in PUBLISH_ORDER]
+
+
+def detect_changed(candidates: list[str], state: dict) -> list[str]:
+    changed: list[str] = []
+    for folder in candidates:
+        since, _source = bump.resolve_since_for_folder(folder, None, state)
+        if bump.package_changed(folder, since):
+            changed.append(folder)
+    return changed
+
+
+def run_bump(folders: list[str], part: str) -> list[str]:
+    changes: list[str] = []
+    for folder in folders:
+        changes.extend(bump.bump_package(folder, part, dry_run=False))
+    return changes
+
+
+def run_sync() -> list[str]:
+    version_map = sync.load_version_map()
+    changes: list[str] = []
+    for pyproject in sync.PYPROJECT_PATHS:
+        if pyproject.is_file():
+            changes.extend(sync.sync_pyproject(pyproject, version_map, None, write=True))
+    return changes
+
+
+def git(*args: str) -> None:
+    subprocess.run(["git", *args], cwd=ROOT, check=True)
+
+
+def commit_all(message: str) -> None:
+    git("add", "-A")
+    git("commit", "-m", message)
+
+
+def build_package(folder: str) -> bool:
+    print(f"\n=== Building {dist_name(folder)} ({folder}) ===")
+    result = subprocess.run(["flit", "build", "--no-use-vcs"], cwd=ROOT / folder)
+    return result.returncode == 0
+
+
+def publish_package(folder: str) -> bool:
+    print(f"\n=== Publishing {dist_name(folder)} ({folder}) ===")
+    result = subprocess.run([str(ROOT / "publish_pypi"), folder], cwd=ROOT)
+    return result.returncode == 0
+
+
+def folder_for_pyproject(path: Path) -> str | None:
+    """Map a workspace pyproject.toml path to its folder (None for the root meta)."""
+    if path.parent == ROOT:
+        return None
+    return path.parent.name
+
+
+def simulate_release_plan(
+    initial: list[str],
+    part: str,
+) -> tuple[list[str], dict[str, tuple[str, str]], bool, set[str]]:
+    """Predict the full cascaded batch without touching any files.
+
+    Bumps the initial set in an in-memory version map, then repeatedly asks
+    ``sync_workspace_deps`` (with ``write=False``) which dependents' pins would
+    move, folding those in — mirroring what ``execute`` does with real writes.
+
+    Returns ``(ordered_batch, bumps, converged, unresolved)``.
+    """
+    version_map = sync.load_version_map()
+    bumps: dict[str, tuple[str, str]] = {}
+    batch_set: set[str] = set()
+
+    def apply_bump(folder: str) -> None:
+        dist = bump.DIST_BY_FOLDER[folder]
+        old = version_map[dist]
+        new = bump.bump_version(old, part)
+        version_map[dist] = new
+        bumps[folder] = (old, new)
+        batch_set.add(folder)
+
+    for folder in ordered(set(initial)):
+        apply_bump(folder)
+
+    iterations = 0
+    while True:
+        newly: set[str] = set()
+        for pyproject in sync.PYPROJECT_PATHS:
+            if not pyproject.is_file():
+                continue
+            if not sync.sync_pyproject(pyproject, version_map, None, write=False):
+                continue
+            folder = folder_for_pyproject(pyproject)
+            if folder in PUBLISH_ORDER and folder not in batch_set:
+                newly.add(folder)
+        if not newly:
+            return ordered(batch_set), bumps, True, set()
+        iterations += 1
+        if iterations > CASCADE_MAX_ITERATIONS:
+            return ordered(batch_set), bumps, False, newly
+        for folder in ordered(newly):
+            apply_bump(folder)
+
+
+def print_plan(initial: list[str], part: str) -> None:
+    batch, bumps, converged, unresolved = simulate_release_plan(initial, part)
+    initial_set = set(initial)
+    print("Release plan (dry run — nothing changed):\n")
+    print(f"  Bump part: {part}")
+    if not batch:
+        print("  No changed packages to release.")
+        print("\nRe-run with --yes to execute.")
+        return
+    print("  Packages to release (source changes + cascaded pin bumps):")
+    for folder in batch:
+        old, new = bumps[folder]
+        tag = "" if folder in initial_set else "   [cascaded via pin bump]"
+        print(f"    {dist_name(folder)} ({folder}): {old} -> {new}{tag}")
+    print("\n  Publish order:")
+    print("    " + " -> ".join(dist_name(f) for f in batch))
+    if not converged:
+        print(
+            f"\n  WARNING: cascade did not converge after {CASCADE_MAX_ITERATIONS}"
+            f" iterations (possible dependency cycle); unresolved: "
+            f"{', '.join(sorted(unresolved))}. Executing would abort."
+        )
+    print("\nRe-run with --yes to execute.")
+
+
+def execute(batch: list[str], part: str) -> int:
+    if not working_tree_clean():
+        fail("working tree is not clean. Commit or stash your changes first.")
+
+    print("Bumping initial changed packages...")
+    changes = run_bump(batch, part)
+    print("Syncing workspace dependency pins...")
+    run_sync()
+
+    batch_set = set(batch)
+    iterations = 0
+    while True:
+        remaining = [f for f in PUBLISHABLE if f not in batch_set]
+        newly = detect_changed(remaining, load_release_state())
+        if not newly:
+            break
+        iterations += 1
+        if iterations > CASCADE_MAX_ITERATIONS:
+            fail(
+                "cascade did not converge after "
+                f"{CASCADE_MAX_ITERATIONS} iterations (possible dependency cycle); "
+                f"unresolved: {', '.join(sorted(newly))}"
+            )
+        print(f"Cascade iteration {iterations}: folding in {', '.join(newly)}")
+        changes.extend(run_bump(newly, part))
+        batch_set.update(newly)
+        run_sync()
+
+    batch = ordered(batch_set)
+
+    # Bump the meta package once, mirroring bump_changed_packages' --meta auto.
+    changes.extend(bump.bump_package(bump.META_FOLDER, part, dry_run=False))
+
+    if not changes:
+        print("Nothing to release.")
+        return 0
+
+    print("\nChanges:")
+    for line in changes:
+        print(f"  {line}")
+
+    pkg_list = ", ".join(dist_name(f) for f in batch)
+    commit_all(f"chore(release): bump {pkg_list} and sync dependency pins")
+
+    for folder in batch:
+        if not build_package(folder):
+            fail(f"build failed for {dist_name(folder)}; no packages published yet.")
+
+    published: list[str] = []
+    for folder in batch:
+        if not publish_package(folder):
+            if published:
+                _commit_state(published)
+            remaining = [dist_name(f) for f in batch if f not in published]
+            fail(
+                f"publish failed for {dist_name(folder)}. "
+                f"Published: {', '.join(dist_name(f) for f in published) or 'none'}. "
+                f"Still pending: {', '.join(remaining)}."
+            )
+        published.append(folder)
+
+    _commit_state(published)
+    print(f"\nReleased {len(published)} package(s): {', '.join(dist_name(f) for f in published)}.")
+    return 0
+
+
+def _commit_state(published: list[str]) -> None:
+    state_file = ROOT / ".release-state.json"
+    status = subprocess.run(
+        ["git", "status", "--porcelain", "--", str(state_file)],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    if not status.stdout.strip():
+        return
+    git("add", str(state_file))
+    git("commit", "-m", "chore(release): record published versions")
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument(
+        "packages",
+        nargs="*",
+        help="Folder or distribution names to restrict the initial changed-set",
+    )
+    parser.add_argument(
+        "--part",
+        choices=("patch", "minor", "major"),
+        default="patch",
+        help="Which semver segment to increment (default: patch)",
+    )
+    parser.add_argument(
+        "--yes",
+        "--execute",
+        dest="execute",
+        action="store_true",
+        help="Actually bump, build, and publish (default is dry-run)",
+    )
+    args = parser.parse_args()
+
+    if not bump.git_ok():
+        fail("not a git repository.")
+
+    initial = resolve_initial_folders(args.packages)
+    batch = detect_changed(initial, load_release_state())
+
+    if not args.execute:
+        print_plan(batch, args.part)
+        return 0
+
+    if not batch:
+        print("No changed packages to release.")
+        return 0
+
+    return execute(batch, args.part)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

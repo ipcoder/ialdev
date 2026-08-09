@@ -147,6 +147,9 @@ for pkg_dir in "${requested[@]}"; do
     echo "Check: pip index versions $dist_name" >&2
     exit 5
   fi
+
+  python3 "$ROOT_DIR/record_release_state.py" "$pkg_dir" "$version"
+  echo "Remember to commit .release-state.json alongside this release." >&2
 done
 
 echo "Done."
