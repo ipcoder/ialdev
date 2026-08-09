@@ -4,7 +4,7 @@ build-backend = "flit_core.buildapi"
 
 [project]
 name = "ialdev-vis"
-version = "0.2.5"
+version = "0.2.6"
 description = "iad.vis — visualization utilities (image grids, viewers, colormaps, matplotlib helpers)"
 readme = "README.md"
 requires-python = ">=3.10"

@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ialgdev"
-version = "0.2.7"
+version = "0.2.8"
 description = "Meta package: aggregates ialdev-* libraries (install from repo root or PyPI)"
 readme = "README.md"
 requires-python = ">=3.10"
